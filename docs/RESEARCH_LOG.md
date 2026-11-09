@@ -339,6 +339,7 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 
 **M.** `tools_cd_vs_parallax.py`: the 100 E11 frames, seam ring cut into 10° bins (3 598 bins with ≥ 400 both-valid pixels in |β| < 3°); per bin the raw displacement (median Farneback magnitude on unwarped strips) and the CD of the DP cut and of the flow seam on the same pixels; pooled by displacement.
 **R.** Ratio flow/cut: 0.94 (≈0°, n = 1182), 0.86 (0.16°), 0.85 (0.25°), 0.79 (0.38°), 0.67 (0.57°, n = 338), 0.57 (0.89°, n = 22). The cut's CD rises from 0.014 to 0.077; the flow seam's levels off near 0.05.
+Re-run with the ±0.75° default (E42): ratio 0.92 / 0.83 / 0.80 / 0.72 / 0.60 / 0.48; the flow seam stays below 0.048 in every bin.
 **C.** The morph's advantage is concentrated where parallax is large (near objects), exactly where seams are visible; at zero parallax the two methods agree. Figure in the paper (`paper/data/cd_vs_parallax.dat`).
 
 ## E42 — The transition was too wide for the corrected geometry (default ±1.5° → ±0.75°)
