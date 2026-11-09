@@ -408,6 +408,12 @@ E41 re-run: ratio 0.74 → 0.52 (0.46 top bin), flow seam ≤ 0.041 in every bin
 **R.** CD 0.0306 / 0.0303 / 0.0300 / 0.0299; edge-hard 0.038 / 0.038 / 0.040 / 0.047; edge 0.027 / 0.028 / 0.028 / 0.033; levels no effect.
 **C.** Same trade-off as E37; winsize 11 kept.
 
+## E52 — An even finer strip for 8K (no change)
+
+**M.** 8K clips (6 × 5 frames): flow strip 0.1 vs 0.05°/px (8K lenses ≈ 0.055°/px).
+**R.** CD 0.0347 vs 0.0351 (0.05 better 12/30, p = 0.16), fidelity and edges n.s.; analysis 406 → 636 ms.
+**C.** 0.1° is enough for both modes; no per-mode resolution.
+
 ---
 
 ## Open questions / next experiments
