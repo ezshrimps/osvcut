@@ -362,6 +362,11 @@ body.bt .btview .btpair img{cursor:default}
         <div class="row"><label>对比度</label><input type="range" id="gCon" min="-0.5" max="0.5" step="0.01" value="0"><output id="gConv">0</output></div>
         <div class="row"><label>饱和度</label><input type="range" id="gSat" min="-1" max="1" step="0.02" value="0"><output id="gSatv">0</output></div>
         <div class="row"><label>色温</label><input type="range" id="gTmp" min="-1" max="1" step="0.02" value="0"><output id="gTmpv">0</output></div>
+        <div class="gpresets" style="display:flex;flex-wrap:wrap;gap:4px;margin:4px 0">
+          <button type="button" class="btn" data-g="0,0.08,0.25,0">鲜艳</button><button type="button" class="btn" data-g="0.1,0.05,0.1,0.45">暖调</button>
+          <button type="button" class="btn" data-g="0,0.05,0,-0.45">冷调</button><button type="button" class="btn" data-g="-0.15,0.18,-0.2,0.15">电影感</button>
+          <button type="button" class="btn" data-g="0,0.12,-1,0">黑白</button>
+        </div>
         <button id="gReset" type="button">重置</button>
       </details>
     </section>
@@ -719,6 +724,8 @@ $('seamViz').onchange=e=>state.seamViz=e.target.checked;
 var GRADE=[['gExp','exposure'],['gCon','contrast'],['gSat','saturation'],['gTmp','temperature']];
 function gradeVals(){ const g={}; (GRADE||[]).forEach(([id,k])=>{const v=+($(id)?.value||0); if(v) g[k]=v;}); return g; }
 GRADE.forEach(([id])=>{ $(id).oninput=()=>{ $(id+'v').textContent=(+$(id).value).toFixed(2).replace(/\.?0+$/,'')||'0'; writeSpec(); }; });
+document.querySelectorAll('.gpresets [data-g]').forEach(b=>b.onclick=()=>{ const v=b.dataset.g.split(',').map(Number);
+  GRADE.forEach(([id],i)=>{ $(id).value=v[i]; $(id+'v').textContent=(+v[i]).toFixed(2).replace(/\.?0+$/,'')||'0'; }); writeSpec(); toast('调色：'+b.textContent+'（可再拖动滑杆微调）'); });
 $('gReset').onclick=()=>{ GRADE.forEach(([id])=>{ $(id).value=0; $(id+'v').textContent='0'; }); writeSpec(); };
 $('follow').onchange=e=>state.follow=e.target.checked;
 $('addkf').onclick=addKey;
