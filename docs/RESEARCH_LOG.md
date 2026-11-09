@@ -262,6 +262,7 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 | **flow + DP ±1.5° (default)** | **0.031** | **0.046** | 0.084 | 0.927 | 0.014 |
 
 vs DP cut: CD 89/100 (p = 3.6e-17), CD-hard 92/100; the cut keeps crisper edges (+0.041, p = 4.2e-10) and a smaller step. ±1.5° vs ±3°: 71/100 (p = 2e-6) — smaller margin than before (less misregistration left for a wide ramp to blur). Anti-aliasing: no practical effect. Two-band: edge 0.043 vs 0.048 (p = 0.03), step 0.012 vs 0.014, fidelity −0.024. **GPU LK (E25) reverses**: now worse on CD (0.035 vs 0.031, 95/100) and edges (0.053 vs 0.048); E25's "LK games CD" example mostly reflected LK absorbing part of the scale misregistration. 8K (E27 protocol, 30 frames): CD 24/30 better than the cut (p = 5.5e-4), CD-hard n.s. (p = 0.11).
+Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens reference flow −0.050 [−0.168, +0.013], DP cut −0.033 [−0.129, +0.041] (2/8 above the reference each), feathered −0.211.
 **Superseded:** the numbers in E3 (misalignment), E5 (DIS "bias"), E11, E12, E19, E23–E25 and E27 were measured with the wrong scale.
 
 ---
