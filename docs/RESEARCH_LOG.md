@@ -327,6 +327,12 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 **R.** Matched frames (n = 36): live-morph CD 0.0415 (2 Hz) vs 0.0393 (5 Hz), 5 Hz better 24/36, p = 0.013; cut-only n.s.; edge-hard 0.157 vs 0.155 (p = 0.05). Cost: rig 2.5 → 6.3 MB and 119 → 198 s for a 19-min clip.
 **C.** Default 5 Hz for clips up to 10 min, 2 Hz beyond (rig size).
 
+## E39 — Azimuth resolution of the live tracks (no change)
+
+**M.** 2° (180 bins) vs 1° (360 bins) per-azimuth tracks (`OSV_TRACK_BINS`), 4 clips, 48 matched frames.
+**R.** Live-morph CD 0.0489 vs 0.0488 (1° better 31/48, p = 0.015), edge-hard 0.158 vs 0.157 (n.s.).
+**C.** Consistent but negligible; not worth twice the track size. 2° bins kept. The remaining gap to tracks computed on the displayed frame is temporal interpolation, not azimuth resolution.
+
 ---
 
 ## Open questions / next experiments
