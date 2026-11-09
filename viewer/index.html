@@ -82,6 +82,8 @@ section h2{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacin
 .empty{color:var(--dim);font-size:12px;margin-top:8px}
 textarea{width:100%;height:150px;margin-top:10px;background:#0b0c0e;border:1px solid var(--line);border-radius:6px;padding:8px;font-family:var(--mono);font-size:11px;resize:vertical}
 .warn{color:var(--accent);font-size:12px;margin-top:6px}
+.adv{margin-top:10px}
+.adv summary{cursor:pointer;color:var(--dim);font-size:12px}
 .btns{display:flex;gap:6px;flex-wrap:wrap}
 
 .ab{display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--bg);padding:3px;border-radius:7px}
@@ -344,7 +346,7 @@ body.bt .btview .btpair img{cursor:default}
     </section>
 
     <section>
-      <h2>镜头关键帧 → osvcut</h2>
+      <h2>剪辑与导出</h2>
       <div class="btns">
         <button class="btn primary" id="addkf">＋ 当前视角（K）</button>
         <button class="btn" id="loadai" style="display:none">载入 AI 方案</button>
@@ -357,9 +359,11 @@ body.bt .btview .btpair img{cursor:default}
       <label class="check"><input type="checkbox" id="follow"> 播放时按关键帧运镜（预览成片）</label>
       <div class="kflist" id="kflist"></div>
       <div class="empty" id="kfempty">还没有关键帧。转到想要的视角按 K 记录；或在画面上 <kbd>Shift</kbd>+拖框选中一个人，自动跟随。</div>
-      <textarea id="spec" readonly spellcheck="false"></textarea>
       <div class="warn" id="specwarn"></div>
-      <div class="btns" style="margin-top:8px"><button class="btn" id="copyspec">复制 spec JSON</button></div>
+      <details class="adv"><summary>高级：渲染 spec（JSON，可给脚本 / AI 使用）</summary>
+        <textarea id="spec" readonly spellcheck="false"></textarea>
+        <div class="btns" style="margin-top:8px"><button class="btn" id="copyspec">复制 spec JSON</button></div>
+      </details>
       <div class="row"><label>导出类型</label><select id="projSel"><option value="flat">平面视频（按关键帧取景）</option><option value="360">360° 全景视频（YouTube / VR）</option></select></div>
       <div class="row"><label>拼缝</label><select id="seamSel"><option value="flow">光流对齐（推荐）</option><option value="smart">最优切缝</option><option value="legacy">旧版羽化</option></select></div>
       <div class="row"><label>画质</label><select id="cqSel"><option value="18">高（大文件）</option><option value="20" selected>标准</option><option value="24">小文件</option></select>
