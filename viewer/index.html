@@ -192,6 +192,9 @@ body.bt .btview .btpair img{cursor:default}
 .job .err{grid-column:1/-1;color:var(--danger);font-family:var(--mono);font-size:11px;white-space:pre-wrap}
 .exports{width:100%;max-width:1100px}
 .expgrid{display:flex;flex-wrap:wrap;gap:16px}
+.storage{display:flex;flex-wrap:wrap;gap:8px}
+.storage div{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12px;display:flex;gap:10px;align-items:center}
+.storage b{font-family:var(--mono);font-weight:500}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 14px;z-index:20;display:none}
 .exportrow{display:flex;gap:6px;margin-top:8px}
 .exportrow input{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-width:0}
@@ -252,6 +255,7 @@ body.bt .btview .btpair img{cursor:default}
       </div>
       <div class="jobs" id="jobs"></div>
       <div class="exports"><h3>导出的成片</h3><div class="expgrid" id="expgrid"></div></div>
+      <div class="exports"><h3>存储</h3><div id="storage" class="storage"></div></div>
       <div class="exports"><h3>早期样片</h3><div class="expgrid" id="demogrid"></div></div>
     </div>
     <div class="btview" id="btview">
@@ -1199,6 +1203,18 @@ function applyTemplate(kind){
 }
 document.querySelectorAll('[data-tpl]').forEach(b=>b.onclick=()=>applyTemplate(b.dataset.tpl));
 
+/* ---------- storage ---------- */
+async function loadStorage(){
+  let s; try{s=await (await fetch('/api/storage',{cache:'no-store'})).json()}catch{return}
+  const fmt=b=>b>1e9?(b/1e9).toFixed(1)+' GB':(b/1e6).toFixed(0)+' MB';
+  const names={proxies:'实时预览代理',previews:'高质量预览',thumbs:'缩略图',exports:'导出的成片',analysis:'分析缓存'};
+  $('storage').innerHTML=Object.entries(s).map(([k,v])=>`<div>${names[k]||k} <b>${fmt(v.bytes)}</b> · ${v.files} 个${['proxies','previews','thumbs'].includes(k)?` <button class="btn" data-clear="${k}">清理</button>`:''}</div>`).join('');
+  $('storage').querySelectorAll('[data-clear]').forEach(b=>b.onclick=async()=>{
+    if(!confirm(`清理全部${names[b.dataset.clear]}？之后需要时会重新生成。`)) return;
+    const r=await (await fetch('/api/storage/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({what:b.dataset.clear})})).json();
+    toast(`已删除 ${r.removed} 个文件`); await loadLibrary(); loadStorage();});
+}
+
 /* ---------- help ---------- */
 $('helpBtn').onclick=()=>$('help').classList.add('on');
 $('helpClose').onclick=()=>$('help').classList.remove('on');
@@ -1212,7 +1228,7 @@ function setTab(t){
   $('tabBt').classList.toggle('on',t==='bt'); if(t==='bt'){btStats(); if(!btCur) btShow()}
   $('tabLib').classList.toggle('on',t==='lib'); $('tab360').classList.toggle('on',t==='360'); $('tabFlat').classList.toggle('on',t==='flat');
   if(t!=='360') vid.pause();
-  if(t==='flat'){loadExports();renderJobs();renderSeq()}
+  if(t==='flat'){loadExports();renderJobs();renderSeq();loadStorage()}
   if(t==='lib') renderLibrary();
   if(t==='360') layout();
 }

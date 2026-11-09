@@ -232,6 +232,17 @@ class Handler(RangeHandler):
                 j = new_job("transcript", f"{c['name']} · 语音转写", None, c["id"],
                             cmd=[sys.executable, "-u", "analysis.py", "transcript", c["path"], out], output=out)
             return self._json(dict(status=j["status"], job=j["id"], progress=j["progress"]))
+        if p == "/api/storage":
+            def size(d, ext=None):
+                tot, n = 0, 0
+                if os.path.isdir(d):
+                    for fn in os.listdir(d):
+                        fp = os.path.join(d, fn)
+                        if os.path.isfile(fp) and (ext is None or fn.endswith(ext)):
+                            tot += os.path.getsize(fp); n += 1
+                return dict(bytes=tot, files=n)
+            return self._json(dict(proxies=size(PROXIES), previews=size(PREVIEWS), thumbs=size(libmod.THUMBS),
+                                   exports=size(EXPORTS, ".mp4"), analysis=size(analysis.ADIR)))
         if p == "/api/blindtest/stats":
             return self._json(blindtest.stats())
         if p == "/api/jobs":
@@ -364,6 +375,22 @@ class Handler(RangeHandler):
             if proc:
                 proc.kill()
             return self._json({"ok": True})
+        if p == "/api/storage/clear":
+            b = self._body()
+            what = b.get("what")
+            dirs = {"proxies": PROXIES, "previews": PREVIEWS, "thumbs": libmod.THUMBS}
+            if what not in dirs:
+                return self._json({"error": "unknown cache"}, 400)
+            busy = {j["clip"] for j in JOBS.values() if j["status"] in ("queued", "running")}
+            removed = 0
+            for fn in os.listdir(dirs[what]):
+                if fn[:12] in busy:
+                    continue
+                try:
+                    os.remove(os.path.join(dirs[what], fn)); removed += 1
+                except OSError:
+                    pass
+            return self._json({"ok": True, "removed": removed})
         if p == "/api/rescan":
             threading.Thread(target=LIB.scan, daemon=True).start()
             return self._json({"ok": True})
