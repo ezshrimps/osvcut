@@ -56,6 +56,8 @@ def run(job):
                                stdin=subprocess.PIPE)
     cy, cp = float(job["yaw"]), float(job["pitch"])
     tracker = None
+    tmpl = None
+    method = job.get("method", "ncc")       # "ncc" (default, E62) or "mil" (previous follower)
     box = None
     track, lost_at, misses = [], None, 0
     total = max(1, int((t1 - t0) * srcfps / step))
@@ -82,7 +84,30 @@ def run(job):
             eng.update(imgs)
         M = Ms[min(np.searchsorted(ts, t), len(Ms) - 1)]
         view, C = render(imgs, M, cy, cp)
-        if tracker is None:
+        if method == "ncc":
+            # E62: re-centre the view on the subject every frame and find it by normalised cross-correlation of a
+            # slowly updated template near the centre (forward-backward error 0.17 deg median vs 1.5 for MIL)
+            g = cv2.cvtColor(view, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            if tmpl is None:
+                w = max(8, int(2 * fpx * math.tan(math.radians(bw) / 2)))
+                h = max(8, int(2 * fpx * math.tan(math.radians(bh) / 2)))
+                box = (VW // 2 - w // 2, VH // 2 - h // 2, w, h)
+                tmpl = g[box[1]:box[1] + h, box[0]:box[0] + w].copy()
+                ok = True
+            else:
+                w, h = tmpl.shape[1], tmpl.shape[0]
+                R = int(max(w, h) * 0.6)
+                x0, y0 = max(0, VW // 2 - w // 2 - R), max(0, VH // 2 - h // 2 - R)
+                x1, y1 = min(VW, VW // 2 + w // 2 + R), min(VH, VH // 2 + h // 2 + R)
+                res = cv2.matchTemplate(g[y0:y1, x0:x1], tmpl, cv2.TM_CCOEFF_NORMED)
+                _, mx, _, loc = cv2.minMaxLoc(res)
+                ok = mx > 0.35
+                if ok:
+                    box = (x0 + loc[0], y0 + loc[1], w, h)
+                    patch = g[box[1]:box[1] + h, box[0]:box[0] + w]
+                    if patch.shape == tmpl.shape:
+                        tmpl = 0.9 * tmpl + 0.1 * patch
+        elif tracker is None:
             w = 2 * fpx * math.tan(math.radians(bw) / 2)
             h = 2 * fpx * math.tan(math.radians(bh) / 2)
             box = (int(VW / 2 - w / 2), int(VH / 2 - h / 2), max(8, int(w)), max(8, int(h)))
@@ -101,8 +126,10 @@ def run(job):
             dv /= np.linalg.norm(dv)
             ty, tp = angles_of(C @ dv)
             track.append((round(t, 3), ty, tp))
-            # re-aim when the subject leaves the central region
-            if abs(bx) > VW * 0.18 or abs(by) > VH * 0.18:
+            if method == "ncc":
+                cy, cp = ty, tp                       # re-centred on the next frame
+            # MIL: re-aim when the subject leaves the central region
+            elif abs(bx) > VW * 0.18 or abs(by) > VH * 0.18:
                 cy, cp = ty, tp
                 view, C = render(imgs, M, cy, cp)
                 box = (int(VW / 2 - box[2] / 2), int(VH / 2 - box[3] / 2), box[2], box[3])

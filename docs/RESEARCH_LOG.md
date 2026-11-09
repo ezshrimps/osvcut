@@ -488,3 +488,19 @@ Wired into `osvcut.render` (`"interp": "flow"`, default whenever the output woul
 **Q.** How does our stitch compare with DJI Studio's on identical footage? DJI Studio (desktop, 1.0.0) is installed but has no command-line export, so its 360 exports have to be made by hand.
 **M.** `dji_compare.py`: matches exports to library clips by name; fits per frame the rotation Q from our body frame to DJI's panorama (initialised from our IMU levelling, 4° yaw search, Nelder-Mead on a 3-DoF rotation vector, grey 512×256 grid, seam band |β| < 6° and the poles excluded). Self-test: our own levelled export (cut seam) and a copy rotated with `v360` (yaw 37°, pitch 5°, roll −3°): unrotated fit 0.00° from the levelling, residual 0.0060; rotated residual 0.0064; close-ups sampled through the two fits agree at 33.2 dB (the copy has an extra encode). `blindtest.make_dji_pair`: same parallax-preferring seam close-up from both, our side resampled from our panorama rendered at DJI's export width.
 **R.** Pending DJI Studio exports.
+
+## E62 — Subject following: label-free benchmark and a re-centring NCC follower
+
+**Q.** The studio's subject follow (MIL tracker in a 640×480 view, re-aimed and re-initialised when the subject leaves the centre) had never been measured. Can it be improved without model downloads?
+**M.** `tools_track_eval.py`: 60 runs (two seeds, 20 + 40 clips), each a person-sized (8°×16°), strongly textured box near the horizon at a random time (this OpenCV build has no pedestrian detector); track 3 s forward at 15 fps, then backward from the end point; forward-backward (FB) error = angle between start and return (Kalal et al. 2010). Followers: `mil` (studio), `ncc` (view re-centred on the subject every frame, normalised cross-correlation of a slowly updated template, search ±0.6 box around the centre), and both in a world-fixed-heading frame (`_w`, IMU `lock` levelling). A first version scored MIL by its view centre instead of its box (20/40 runs looked motionless, FB ≈ 0); fixed before the numbers below.
+**R.**
+
+| follower | median FB | mean | > 5° | < 1° | lost |
+|---|---|---|---|---|---|
+| mil | 0.67° | 3.22° | 10 | 36/60 | 0 |
+| **ncc** | **0.17°** | 5.20° | 8 | **50/60** | 1 |
+| mil_w | 0.64° | 1.97° | 5 | 37/60 | 0 |
+| ncc_w | 0.16° | 5.50° | 8 | 50/60 | 1 |
+
+ncc vs mil: better on 46, worse on 13 runs (Wilcoxon p = 0.005). World frame: no change for ncc (p = 0.82), a lighter tail for MIL (n.s., p = 0.19). NCC's failures are rarer but larger (90th percentile 15.7° vs 11.3°): when it jumps to a similar texture it does not come back.
+**C.** `track.py` defaults to `ncc` (`"method": "mil"` keeps the old follower). Open: failure detection / re-detection for the heavy tail, and a labelled benchmark with real people.

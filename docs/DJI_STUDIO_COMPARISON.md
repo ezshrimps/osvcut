@@ -10,7 +10,7 @@ Studio exports of the same clips. osvcut's column is what the code in this repos
 | Seam inspection | — | Seam overlay, A/B seam toggle, timeline seam-difficulty band (parallax), blind-test page | osvcut only |
 | Horizon / stabilisation | Yes | IMU levelling from the OSV metadata, smoothed heading | |
 | Reframing + keyframes | Yes | Keyframes (yaw / pitch / fov / distortion), easing, camera-move templates, undo/redo | |
-| Subject tracking | "Intelligent tracking" (people, vehicles, pets) | Shift+drag a box → tracker with re-aiming → keyframes | DJI's tracker is likely stronger; ours is not benchmarked |
+| Subject tracking | "Intelligent tracking" (people, vehicles, pets) | Shift+drag a box → view re-centred on the subject every frame, template (NCC) tracking → keyframes; label-free forward-backward error 0.17° median (old MIL follower 0.67°, E62) | DJI's learned tracker likely re-detects better after losses; no person-labelled benchmark yet |
 | Projections | Flat, little planet, etc. | Perspective, wide, little planet, crystal ball (continuous eye-offset model) | |
 | Slow motion | Speed ramps; Osmo 360 II: **AI frame interpolation up to "64×"** | Frame-exact slow motion from high-fps footage, **optical-flow frame interpolation** below the source rate (0.125× / 0.0625× in the studio; +4–5 dB over cross-fading on held-out frames, E60), local slow-mo of a range, freeze orbit | DJI's is learned ("AI"); ours is classical flow — likely weaker at very large motion |
 | Filters / colour | Filters | Exposure / contrast / saturation / temperature, presets, identical in preview and export | |
