@@ -402,6 +402,12 @@ Re-runs with the final settings: 8K CD 30/30 vs the cut, hard 29/30 (p = 8e-8), 
 E41 re-run: ratio 0.74 → 0.52 (0.46 top bin), flow seam ≤ 0.041 in every bin. Live preview (proxy resolution): morph 0.039 vs cut 0.046 (48/60), unchanged.
 **C.** Default `fres = 0.1`.
 
+## E51 — Farneback window at the 0.1° strip (no change)
+
+**M.** As E37 but on the 0.1°/px strip (the window now spans half the angle): winsize 7 / 11 / 15 / 21, levels 3 / 4; 10 clips × 4 frames (the `fbp_*` methods use a ±1.5° ramp, so only the comparison between windows is meaningful).
+**R.** CD 0.0306 / 0.0303 / 0.0300 / 0.0299; edge-hard 0.038 / 0.038 / 0.040 / 0.047; edge 0.027 / 0.028 / 0.028 / 0.033; levels no effect.
+**C.** Same trade-off as E37; winsize 11 kept.
+
 ---
 
 ## Open questions / next experiments
