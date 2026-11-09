@@ -71,7 +71,7 @@ Example spec:
 
 `proj`: `flat` | `equirect` · `seam`: `flow` (default) | `smart` | `legacy` · `stabilize`: `level` | `lock` | `none`
 
-Optional: `spherical` (with `proj: equirect`: tag the MP4 as 360 video for YouTube / VR players), `speed` (0.25–4; slow motion uses every source frame), `cq` (quality), `seam_async` (default true), `keys[].dist` (0 rectilinear … 1 little planet), `keys[].ease` (`linear`). `nadir_patch` (degrees: cover the hand / stick below the camera), `grade` (`exposure` EV, `contrast`, `saturation`, `temperature`; same maths as the studio preview). `freeze` (`{at, dur, turn}`: freeze orbit), `slow` (`{from, to, speed}`: local slow motion, audio time-stretched), `captions` (`[{start, end, text}]` in source seconds, e.g. from the transcript) with `captions_mode` `burn` (libass) or `soft` (mov_text track + .srt).
+Optional: `spherical` (with `proj: equirect`: tag the MP4 as 360 video for YouTube / VR players), `speed` (0.25–4; slow motion uses every source frame), `cq` (quality), `seam_async` (default true), `keys[].dist` (0 rectilinear … 1 little planet), `keys[].ease` (`linear`). `nadir_patch` (degrees: cover the hand / stick below the camera), `grade` (`exposure` EV, `contrast`, `saturation`, `temperature`; same maths as the studio preview). `freeze` (`{at, dur, turn}`: freeze orbit), `slow` (`{from, to, speed}`: local slow motion, audio time-stretched), `title` (`{text, subtitle, seconds}`: centred title card with fades), `captions` (`[{start, end, text}]` in source seconds, e.g. from the transcript) with `captions_mode` `burn` (libass) or `soft` (mov_text track + .srt).
 
 ## Use it from an AI assistant (MCP)
 

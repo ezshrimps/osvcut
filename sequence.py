@@ -108,6 +108,11 @@ def main(job_path):
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", joined, "-i", music["path"], "-filter_complex", fc,
                         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                         "-movflags", "+faststart", dst], check=True)
+    tc = job.get("title_card")
+    if tc and str(tc.get("text", "")).strip():      # title card over the start of the whole film
+        sys.path.insert(0, here)
+        from osvcut import add_title
+        add_title(dst, tc["text"], size, float(tc.get("seconds", 3.0)), tc.get("subtitle", ""))
     if specs and all(sp.get("spherical") and sp.get("proj") == "equirect" for sp in specs):
         import spherical                       # every cut is a 360 render: tag the joined film too
         spherical.inject(dst)

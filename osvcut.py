@@ -239,6 +239,29 @@ def add_captions(dst,captions,t0,t1,speed=1.0,mode="burn",size=(1920,1080)):
     os.replace(tmp,dst)
     return len(lines)
 
+def add_title(dst,title,size=(1920,1080),seconds=3.0,subtitle=""):
+    """Burn a centred title card (with fade in / out) over the first `seconds` of the video (ASS via libass)."""
+    W,H=int(size[0]),int(size[1]); fs=int(min(W,H)*0.085); fs2=int(fs*0.45)
+    def ass_time(x):
+        cs=int(round(max(0.0,x)*100)); h,cs=divmod(cs,360000); m,cs=divmod(cs,6000); s_,cs=divmod(cs,100)
+        return f"{h}:{m:02d}:{s_:02d}.{cs:02d}"
+    clean=lambda t: str(t).replace("{","(").replace("}",")").replace('\n'," ").strip()
+    body=clean(title)+(('\\'+"N{"+'\\'+"fs"+str(fs2)+"}"+clean(subtitle)) if subtitle else "")
+    ass=dst[:-4]+"_title.ass"
+    with open(ass,"w",encoding="utf8") as fh:
+        fh.write("[Script Info]"+'\n'+"ScriptType: v4.00+"+'\n'+f"PlayResX: {W}"+'\n'+f"PlayResY: {H}"+'\n'+'\n')
+        fh.write("[V4+ Styles]"+'\n'+"Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Alignment, BorderStyle, Outline, Shadow, MarginL, MarginR, MarginV"+'\n')
+        fh.write(f"Style: T,Microsoft YaHei,{fs},&H00FFFFFF,&H90000000,&H00000000,1,5,1,{max(2,fs//14)},0,{fs},{fs},0"+'\n'+'\n')
+        fh.write("[Events]"+'\n'+"Format: Layer, Start, End, Style, Text"+'\n')
+        fh.write(f"Dialogue: 0,{ass_time(0.15)},{ass_time(seconds)},T,"+"{"+'\\'+"fad(400,500)}"+body+'\n')
+    esc=os.path.abspath(ass).replace('\\',"/").replace(":",'\\'+":")
+    tmp=dst[:-4]+"_t.mp4"
+    cmd=["ffmpeg","-v","error","-y","-i",dst,"-vf",f"ass='{esc}'","-c:v","h264_nvenc","-preset","p5","-cq","19","-c:a","copy","-movflags","+faststart",tmp]
+    if subprocess.run(cmd).returncode!=0:
+        cmd[cmd.index("h264_nvenc")]="libx264"; i=cmd.index("-preset"); cmd[i+1]="medium"; i=cmd.index("-cq"); cmd[i:i+2]=["-crf","19"]
+        subprocess.run(cmd,check=True)
+    os.replace(tmp,dst); os.remove(ass)
+
 def render(spec):
     f=spec["src"]; t0,t1=spec["in"],spec["out"]; mode=spec.get("proj","flat")
     Wo,Ho=spec.get("size",[1920,1080]); fps=spec.get("fps",50)
@@ -368,6 +391,10 @@ def render(spec):
     if spec.get("captions"):
         n=add_captions(spec["dst"],spec["captions"],t0,t1,speed,spec.get("captions_mode","burn"),(Wo,Ho))
         print("captions:",n,"lines",flush=True)
+    if spec.get("title"):
+        tt=spec["title"] if isinstance(spec["title"],dict) else {"text":spec["title"]}
+        if str(tt.get("text","")).strip():
+            add_title(spec["dst"],tt["text"],(Wo,Ho),float(tt.get("seconds",3.0)),tt.get("subtitle",""))
     if spec.get("spherical") and mode=="equirect":
         import spherical; spherical.inject(spec["dst"])
     print(f"progress {total}/{total}",flush=True)

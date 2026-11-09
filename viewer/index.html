@@ -265,7 +265,7 @@ body.bt .btview .btpair img{cursor:default}
           <select id="seqTrans"><option value="">直接切</option><option value="fade" selected>淡入淡出</option><option value="fadeblack">黑场过渡</option><option value="wipeleft">擦除</option><option value="circleopen">圆形展开</option></select>
           <select id="seqTransDur"><option value="0.3">0.3 秒</option><option value="0.5" selected>0.5 秒</option><option value="1">1 秒</option></select>
         </div>
-        <div class="exportrow"><input id="seqTitle" placeholder="整片标题（可选）"><button class="btn primary" id="seqGo">导出整片</button><button class="btn" id="seqClear">清空</button><button class="btn" id="seqSave" title="把剪辑台（各段、转场、背景音乐设置）保存成 .osvcut.json 文件">保存工程</button><label class="btn" style="cursor:pointer" title="打开之前保存的 .osvcut.json 工程">打开工程<input type="file" id="seqOpen" accept=".json,application/json" style="display:none"></label></div>
+        <div class="exportrow"><input id="seqTitle" placeholder="整片标题（可选）"><label class="check" style="margin:0;white-space:nowrap" title="在整片开头 3 秒居中显示这个标题"><input type="checkbox" id="seqTitleCard"> 片头显示</label><button class="btn primary" id="seqGo">导出整片</button><button class="btn" id="seqClear">清空</button><button class="btn" id="seqSave" title="把剪辑台（各段、转场、背景音乐设置）保存成 .osvcut.json 文件">保存工程</button><label class="btn" style="cursor:pointer" title="打开之前保存的 .osvcut.json 工程">打开工程<input type="file" id="seqOpen" accept=".json,application/json" style="display:none"></label></div>
       </div>
       <div class="jobs" id="jobs"></div>
       <div class="exports"><h3>导出的成片</h3><div class="expgrid" id="expgrid"></div></div>
@@ -412,7 +412,7 @@ body.bt .btview .btpair img{cursor:default}
       <div class="row"><label>字幕</label><select id="capSel"><option value="off" selected>不加</option><option value="burn">烧进画面（来自语音转写）</option><option value="soft">软字幕轨道 + .srt</option></select></div>
       <div class="row"><label>脚下补丁</label><select id="nadirSel"><option value="0" selected>关</option><option value="10">小（10°）</option><option value="15">中（15°）</option><option value="20">大（20°）</option></select></div>
       <div class="row"><label>速度</label><select id="speedSel"><option value="0.25">0.25× 慢动作（100fps 素材无损）</option><option value="0.5">0.5× 慢动作</option><option value="1" selected>1× 正常</option><option value="2">2× 快进</option><option value="4">4× 快进</option></select></div>
-      <div class="exportrow"><input id="exportTitle" placeholder="成片标题（可选）"><button class="btn primary" id="exportGo">导出成片</button><button class="btn" id="seqAdd" title="把这一段（入出点 + 关键帧）加到剪辑台">＋ 剪辑台</button></div>
+      <div class="exportrow"><input id="exportTitle" placeholder="成片标题（可选）"><label class="check" style="margin:0;white-space:nowrap" title="在开头 3 秒居中显示这个标题（淡入淡出）"><input type="checkbox" id="titleCard"> 片头显示</label><button class="btn primary" id="exportGo">导出成片</button><button class="btn" id="seqAdd" title="把这一段（入出点 + 关键帧）加到剪辑台">＋ 剪辑台</button></div>
       <div class="minicap">按上面的关键帧和画幅在 GPU 上渲染 mp4，进度在「成片 &amp; 任务」里看</div>
     </section>
   </aside>
@@ -1063,6 +1063,7 @@ $('exportGo').onclick=async()=>{
   if(!state.keys.length&&!($('projSel').value==='360'&&state.inP!=null)){toast($('projSel').value==='360'?'360 导出：先用 I / O 设好入出点':'先记录至少一个关键帧（按 K）');return}
   let spec; try{spec=JSON.parse($('spec').value)}catch{toast('spec 无效');return}
   const title=$('exportTitle').value||`${c.title} · ${state.keys.length} 个关键帧`;
+  if($('titleCard').checked&&$('exportTitle').value.trim()) spec.title={text:$('exportTitle').value.trim(),seconds:3};
   const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'export',spec,title})});
   const j=await r.json(); if(j.error){toast('导出失败：'+j.error);return}
   toast('已加入导出队列'); pollJobs();
@@ -1290,7 +1291,7 @@ $('seqGo').onclick=async()=>{
   if(!SEQ.length) return;
   const f=SEQ[0].spec;
   const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({kind:'sequence',specs:SEQ.map(s=>s.spec),title:$('seqTitle').value||undefined,size:f.size,fps:f.fps,music:MUSIC||undefined,transition:$('seqTrans').value?{type:$('seqTrans').value,duration:+$('seqTransDur').value}:undefined})});
+    body:JSON.stringify({kind:'sequence',specs:SEQ.map(s=>s.spec),title:$('seqTitle').value||undefined,size:f.size,fps:f.fps,music:MUSIC||undefined,title_card:($('seqTitleCard').checked&&$('seqTitle').value.trim())?{text:$('seqTitle').value.trim(),seconds:3}:undefined,transition:$('seqTrans').value?{type:$('seqTrans').value,duration:+$('seqTransDur').value}:undefined})});
   const j=await r.json(); if(j.error){toast('导出失败：'+j.error);return}
   toast('整片已加入导出队列'); pollJobs();
 };

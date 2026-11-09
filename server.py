@@ -419,7 +419,7 @@ class Handler(RangeHandler):
                 tr = b.get("transition") or None
                 if tr and tr.get("type") not in ("fade", "fadeblack", "wipeleft", "circleopen"):
                     tr = None
-                json.dump(dict(specs=specs, dst=dst, size=b.get("size"), fps=b.get("fps"), music=music, transition=tr),
+                json.dump(dict(specs=specs, dst=dst, size=b.get("size"), fps=b.get("fps"), music=music, transition=tr, title_card=b.get("title_card")),
                           open(jid_spec, "w", encoding="utf8"), ensure_ascii=False, indent=1)
                 json.dump(dict(title=title, size=b.get("size") or specs[0].get("size"), sequence=specs),
                           open(dst[:-4] + ".json", "w", encoding="utf8"), ensure_ascii=False, indent=1)
