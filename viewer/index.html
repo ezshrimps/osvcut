@@ -564,7 +564,12 @@ function setRig(r){
     for(let i=0;i<n;i++){loc.set(G.subarray(i*(gb+1)*3,i*(gb+1)*3+gb*3),i*gb*3); glo.set(G.subarray(i*(gb+1)*3+gb*3,(i+1)*(gb+1)*3),i*3)}
     tex2d(2,seamT,sm.bins,n,gl.R8,gl.RED,P,gl.REPEAT); tex2d(3,gainT,gb,n,gl.RGB8,gl.RGB,loc,gl.REPEAT); tex2d(4,gglobT,1,n,gl.RGB8,gl.RGB,glo,gl.CLAMP_TO_EDGE);
     gl.uniform1f(U.seamRows,n); gl.uniform1f(U.seamRate,sm.rate); gl.uniform1i(U.seamOn,1);
-    if(sm.flow){ tex2d(5,flowT,sm.bins,n,gl.RG8,gl.RG,b64bytes(sm.flow),gl.REPEAT); gl.uniform1f(U.flowRange,sm.flow_range||4); gl.uniform1i(U.flowOn,1); }
+    if(sm.flow){ const FB=b64bytes(sm.flow), rng=sm.flow_range||4, sd=new Float32Array(n);
+      // seam difficulty per sample: 90th percentile of the lens-to-lens displacement around the ring (deg)
+      for(let i=0;i<n;i++){const m=[];for(let j=0;j<sm.bins;j++){const a=(FB[(i*sm.bins+j)*2]/255-.5)*2*rng,b=(FB[(i*sm.bins+j)*2+1]/255-.5)*2*rng;m.push(Math.hypot(a,b))}
+        m.sort((x,y)=>x-y); sd[i]=m[Math.floor(m.length*0.9)]}
+      r._sd=sd; r._sdRate=sm.rate;
+      tex2d(5,flowT,sm.bins,n,gl.RG8,gl.RG,FB,gl.REPEAT); gl.uniform1f(U.flowRange,sm.flow_range||4); gl.uniform1i(U.flowOn,1); }
     else gl.uniform1i(U.flowOn,0);
   } else {gl.uniform1i(U.seamOn,0); gl.uniform1i(U.flowOn,0);}
   const colMajor=m=>[m[0][0],m[1][0],m[2][0],m[0][1],m[1][1],m[2][1],m[0][2],m[1][2],m[2][2]];
@@ -1066,6 +1071,10 @@ function drawTimeline(){
     c.fillStyle='rgba(229,97,107,.85)';
     for(let x=0;x<W;x+=2){const i=Math.min(sh.length-1,Math.floor(x/W*D*m.rate)); if(sh[i]>thr) c.fillRect(x,mH+1,2,3*dpr)}
   }else{c.fillStyle='#3a3f46';c.font=`${11*dpr}px sans-serif`;c.fillText('运动数据加载中…',8*dpr,mH/2)}
+  // seam difficulty (live rig v4): purple band at the top, stronger where the lenses disagree more
+  if(RIG&&RIG._sd){const sd=RIG._sd, n=sd.length;
+    for(let x=0;x<W;x+=2){const i=Math.min(n-1,Math.floor(x/W*D*RIG._sdRate)); const v=Math.min(1,Math.max(0,(sd[i]-0.3)/1.2));
+      if(v>0){c.fillStyle=`rgba(176,120,255,${(0.25+0.75*v).toFixed(2)})`; c.fillRect(x,0,2,(2+5*v)*dpr)}}}
   // speech
   if(state.tx) for(const s of state.tx.segments){c.fillStyle='rgba(79,195,217,.85)'; c.fillRect(X(s.start),vY,Math.max(2,X(s.end)-X(s.start)),vH)}
   // keyframes
@@ -1081,6 +1090,7 @@ tl.addEventListener('pointermove',e=>{
   const t=tlTime(e); if(tlDrag&&vid.src) vid.currentTime=t;
   const tip=$('tltip'), r=tl.getBoundingClientRect(), parts=[`<b>${fmtDur(t)}</b>`];
   const m=state.motion; if(m&&m.speed.length){const i=Math.min(m.speed.length-1,Math.floor(t*m.rate)); parts.push(`转动 ${m.speed[i]}°/s · 倾斜 ${m.tilt[i]}°${m.shake[i]>25?' · <span style="color:#e5616b">晃动</span>':''}`)}
+  if(RIG&&RIG._sd){const v=RIG._sd[Math.min(RIG._sd.length-1,Math.floor(t*RIG._sdRate))]; if(v>0.3) parts.push(`<span style="color:#b078ff">接缝视差 ${v.toFixed(1)}°${v>1?'（近处物体，接缝可能可见）':''}</span>`)}
   const s=state.tx?.segments.find(s=>t>=s.start&&t<=s.end); if(s) parts.push(`<span style="color:#4fc3d9">“${esc(s.text)}”</span>`);
   tip.innerHTML=parts.join('<br>'); tip.style.display='block'; tip.style.left=(e.clientX-r.left+14)+'px';
 });
