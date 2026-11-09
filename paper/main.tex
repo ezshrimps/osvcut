@@ -101,7 +101,7 @@ r(\theta)&=\theta\,(1+k_1\theta^2+k_2\theta^4+k_3\theta^6+k_4\theta^8+k_5\theta^
 (u,v)&=\tfrac{W}{2}+s\big(f_x r\cos\phi + c_x-1920,\; f_y r\sin\phi + c_y-1920\big),
 \end{aligned}
 \end{equation}
-with stream scale $s=f_{\mathrm{digital}}/f_x$ (0.5065 in 4K mode).
+with stream scale $s=W/3840$ ($0.5$ in 4K mode, $1$ in 8K mode). The metadata also carries a ``digital focal length'' with $f_{\mathrm{digital}}/f_x=1.013$ in both modes; using it as the scale, as an earlier version of this work did, misregisters the lenses (\S\ref{sec:scale}).
 
 \paragraph{Fast metadata access.} Dumping packets with ffprobe is slow for long clips. Because every sample is a \texttt{ProductMeta} message whose later samples contain only field~3 (\texttt{FrameMeta}), the stream-copied track parsed as \emph{one} protobuf message is a flat list in which each frame contributes exactly one field~3. Reading attitudes for a 19-minute clip (115\,443 frames) takes 22\,s instead of minutes.
 
@@ -118,6 +118,28 @@ We unwrap both lenses along the seam band (latitude $\beta\in[-8^\circ,8^\circ]$
 \item \textbf{Exposure.} The slave/master luminance ratio varies from $0.53$ to $1.40$ around the ring (strong backlight).
 \item \textbf{Occlusion.} The body polygon marks where the camera itself is visible. Both lenses' occluded sectors face the handle, so the usable overlap shrinks from about $10^\circ$ to about $1^\circ$ there, and the occlusion edge is a $1$--$2^\circ$ dark gradient that a naive blend mixes in.
 \end{itemize}
+
+\subsection{A scale error that dense flow did not see}\label{sec:scale}
+
+An earlier version of this pipeline mapped calibration to stream pixels with $s=f_{\mathrm{digital}}/f_x$, a plausible reading of a metadata field. While studying the body-occluded sector we found the selfie-stick holder duplicated across the seam and ran a wide vertical-disparity search: a 2-D zero-mean normalised cross-correlation of band-passed luma between lens~A just below the seam and lens~B shifted by $s_\beta\in[-1^\circ,8^\circ]$. It reported $s_\beta\approx2.8^\circ$ not only there but at \emph{every} azimuth, including far foliage in the wide overlap, where Farneb\"ack flow on the $46$-row seam strip reported $\approx0$ (raw median $-0.07^\circ$ at the same place). We excluded the search itself (it returns $0$ for $B{:=}A$) and stream desynchronisation (decoding the two streams separately by frame index gives the same result), then scaled both lenses' radii by a common factor $\kappa$ and scored the correlation of the two lenses at zero shift where both are valid. Over 36 frames from 12 random 4K clips the best $\kappa$ relative to $s=W/3840$ has median $0.9975$ (IQR $[0.9975, 1.0]$) and over 30 frames from 12 8K clips $1.000$ (IQR $[0.998, 1.005]$), whereas $f_{\mathrm{digital}}/f_x$ corresponds to $\kappa=1.013$; the correlation rises from $0.55$ to $0.77$ (4K, better in 35/36 frames) and from $0.70$ to $0.83$ (8K, 27/30). The intrinsics are simply stored for a $3840$-pixel lens image.
+
+The $1.3\%$ error moves every ray near $90^\circ$ about $1.4^\circ$ away from the optical axis in each lens, a constant $\approx2.8^\circ$ misregistration across the whole ring. It is easy to miss: a shift across the seam is invisible on structures that cross it at right angles, the narrow transition of a minimum-difference cut hides much of the rest, and on a strip only 46 rows tall Farneb\"ack's pyramid does not recover a 15-pixel vertical shift. The ``systematic $+2$--$3.4^\circ$ bias'' for which we had rejected dense inverse search (\S\ref{sec:seam}) was this offset, measured correctly. All results below use the corrected scale; Table~\ref{tab:scale} compares both on the benchmark of \S\ref{sec:eval}. The correction alone removes more disagreement than any seam method did under the wrong scale, and it helps every method.
+
+\begin{table}[t]
+\centering
+\caption{Effect of the stream scale on the benchmark of \S\ref{sec:eval} (100 frames, 20 clips; lower is better except fidelity). Wins: frames where the corrected scale is better (Wilcoxon $p$).}
+\label{tab:scale}
+\small
+\begin{tabular}{lccc}
+\toprule
+ & CD (old $\to$ new) & CD-hard & wins \\
+\midrule
+Feathered          & $0.101\to0.064$ & $0.133\to0.094$ & 95/100 ($10^{-17}$) \\
+Min-difference cut & $0.071\to0.045$ & $0.092\to0.068$ & 96/100 ($10^{-17}$) \\
+Ours (photometric conf.) & $0.062\to0.031$ & $0.082\to0.046$ & 97/100 ($10^{-17}$) \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \paragraph{Ruled out.} (i) \emph{Vignetting}: the median radial luminance profile is flat ($\pm4\%$) to $96^\circ$. (ii) \emph{Rolling shutter}: over 40 frames with angular speeds of $5$--$533^\circ$/s, seam flow does not grow with speed (Pearson $r=0.09$). Because a rolling-shutter displacement depends on azimuth (a seam point may be read near the top of one sensor and the bottom of the other) and could cancel in such a summary, we also fit a per-pixel model: with readout time $\tau$ and body angular velocity $\omega$ from the IMU, the second lens sees a seam direction $u$ later by $\Delta t=\tau(y_1-y_0)/H$, predicting a displacement $-(\omega\times u)\,\Delta t$. Over $\sim$1.5\,M confident pixels from 30 frames per clip, the fit explains nothing ($R^2\le0.000$, identical to a control with $\omega$ from shuffled frames). (iii) \emph{Calibration error}: per $10^\circ$ azimuth bin, the confident flow has no bias that persists across 30 frames (RMS of the per-bin mean $0.04^\circ$ against a per-frame spread of $0.12^\circ$; no bin with $|t|>4$ on one clip, one on the other), so large local misalignments are frame-specific. (iv) \emph{A gravity-aligned ground plane}: fitting $\Delta\beta = k\sin(-\mathrm{el}) + c$ to confident seam flow below the horizon gives $R^2\le0.07$, with $k$ changing sign between clips. (v) A large share of the remaining lens-to-lens difference on texture is not geometric: even after raw-flow alignment the mean absolute difference on textured pixels falls only from $38.4$ to $34.1$ grey levels (from $36.0$ to $32.0$ with anti-aliased sampling), reflecting edge-of-field blur, chromatic aberration and noise.
 
@@ -153,7 +175,7 @@ All seam computations live in the camera body frame, so one seam serves every ou
 
 \paragraph{Exposure field.} On the overlap we compute, in linear light, the slave/master ratio in $5^\circ$ azimuth bins, fill empty bins circularly, smooth it, and filter it over time. Its circular mean is applied to the whole hemisphere and the azimuthal residual is faded out within $45^\circ$ of the seam.
 
-\paragraph{Flow alignment.} On a seam strip ($\pm4.5^\circ$, $0.2^\circ$/px) we estimate dense flow $F$ with $A(p)\approx B(p+F)$ using Farneb\"ack's method~\cite{farneback2003}, keep it where forward--backward consistency is high, fill elsewhere by normalised convolution and clamp it to $4^\circ$. Dense inverse search~\cite{kroeger2016dis} produced a systematic $+2$--$3.4^\circ$ bias on these 23--46-row strips and was rejected.
+\paragraph{Flow alignment.} On a seam strip ($\pm4.5^\circ$, $0.2^\circ$/px) we estimate dense flow $F$ with $A(p)\approx B(p+F)$ using Farneb\"ack's method~\cite{farneback2003}, keep it where forward--backward consistency is high, fill elsewhere by normalised convolution and clamp it to $4^\circ$. With the wrong stream scale (\S\ref{sec:scale}), dense inverse search~\cite{kroeger2016dis} reported a ``systematic'' $+2$--$3.4^\circ$ offset on these strips that we wrongly attributed to the method; it was the true misregistration, which Farneb\"ack's method missed. With the corrected scale the remaining displacements are small and Farneb\"ack's method is adequate.
 
 \paragraph{Minimum-disagreement path.} We align both strips half-way, $A_{1/2}(p)=A(p-\tfrac12F)$ and $B_{1/2}(p)=B(p+\tfrac12F)$, and find a closed path $\beta^*(\alpha)$ minimising
 \begin{equation}
