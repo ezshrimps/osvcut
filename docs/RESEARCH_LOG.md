@@ -251,6 +251,18 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **C.** The old scale put every ray ~1.4° too far from the optical axis in each lens near 90°, i.e. a constant ~2.8° β misregistration around the whole ring. It went unnoticed because (a) a β-shift is invisible on structures that cross the seam at right angles, (b) the narrow DP-placed ramp hides much of it, and (c) Farneback on the 46-row strip does not see a 15-px vertical shift (raw median −0.07°) — the "+2–3.4° bias" that got DIS rejected in E5 was in fact the true offset. E3's "median misalignment 0.77–0.85°", E12 and E19 (no systematic calibration bias) were measured with that Farneback and are superseded. Fixed in `stitch.lens_scale` (all paths: renderer, seam engines, masks, proxy rigs → rig v3); `OSV_LEGACY_SCALE=1` reproduces the old geometry for A/B.
 **Corpus check** (`tools_scale_check.py`, common κ on both lenses, correlation at zero shift where both lenses are valid): 4K, 12 random clips × 3 frames: best κ relative to W/3840 median 0.9975 (IQR 0.9975–1.0); correlation 0.546 → 0.765, better in 35/36 frames. 8K, 30 frames: median κ 1.000 (IQR 0.998–1.005); 0.700 → 0.829, better in 27/30. The old scale is κ = 1.013 in both modes.
 **Benchmark** (E11 protocol, same 100 frames, old → new scale): CD feathered 0.101 → 0.064, DP cut 0.071 → 0.045, flow + DP (photometric confidence) 0.062 → 0.031 (better in 97/100, p = 7.6e-18); CD-hard 0.082 → 0.046; edge-hard 0.071 → 0.085 (n.s., p = 0.07). Flow + DP vs DP cut under the new scale: CD 0.031 vs 0.045.
+**Re-run of all seam results with the corrected scale** (`results/seam_bench_v3.json`, same 100 frames):
+
+| method | CD | CD-hard | edge-hard | fid-hard | step |
+|---|---|---|---|---|---|
+| feathered | 0.064 | 0.094 | 0.235 | 0.875 | 0.017 |
+| DP cut | 0.045 | 0.068 | **0.043** | **0.977** | **0.011** |
+| flow, centred | 0.036 | 0.057 | 0.087 | 0.919 | 0.015 |
+| flow + DP ±3° | 0.032 | 0.049 | 0.075 | 0.879 | 0.013 |
+| **flow + DP ±1.5° (default)** | **0.031** | **0.046** | 0.084 | 0.927 | 0.014 |
+
+vs DP cut: CD 89/100 (p = 3.6e-17), CD-hard 92/100; the cut keeps crisper edges (+0.041, p = 4.2e-10) and a smaller step. ±1.5° vs ±3°: 71/100 (p = 2e-6) — smaller margin than before (less misregistration left for a wide ramp to blur). Anti-aliasing: no practical effect. Two-band: edge 0.043 vs 0.048 (p = 0.03), step 0.012 vs 0.014, fidelity −0.024. **GPU LK (E25) reverses**: now worse on CD (0.035 vs 0.031, 95/100) and edges (0.053 vs 0.048); E25's "LK games CD" example mostly reflected LK absorbing part of the scale misregistration. 8K (E27 protocol, 30 frames): CD 24/30 better than the cut (p = 5.5e-4), CD-hard n.s. (p = 0.11).
+**Superseded:** the numbers in E3 (misalignment), E5 (DIS "bias"), E11, E12, E19, E23–E25 and E27 were measured with the wrong scale.
 
 ---
 
