@@ -13,3 +13,25 @@ _TABLE = str.maketrans(_T, _S)
 
 def norm(s):
     return (s or "").translate(_TABLE).lower()
+
+
+import re as _re
+
+# Phrases Whisper is known to produce on silence / wind / music (whole-segment matches only)
+_HALLUCINATION = _re.compile(
+    r"^\s*(you\.?|thank you\.?|thanks for watching[!.]*|thank you (so much )?for watching[!.]*|"
+    r"please (like and )?subscribe.*|subscribe.*channel.*|eu me assino[!.]*|obrigad[oa] por assistir.*|"
+    r"ご視聴ありがとうございました.*|字幕.*|.*amara\.org.*|请不吝点赞.*|請不吝點贊.*|感谢观看.*|感謝觀看.*|"
+    r"谢谢观看.*|謝謝觀看.*|明镜与点点.*)\s*$", _re.I)
+
+
+def clean_segments(segs):
+    """Drop known recogniser hallucinations and segments flagged as non-speech by the model."""
+    out = []
+    for s in segs:
+        if _HALLUCINATION.match(s.get("text", "")):
+            continue
+        if s.get("no_speech", 0) > 0.6 and s.get("logprob", 0) < -0.8:
+            continue
+        out.append(s)
+    return out

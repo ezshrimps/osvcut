@@ -77,10 +77,13 @@ def transcribe(src, out, model="small"):
     m = WhisperModel(model, device="cuda", compute_type="float16")
     segs, info = m.transcribe(wav, vad_filter=True)
     dur = max(info.duration, 0.1)
+    from textnorm import clean_segments
     res = []
     for s in segs:
-        res.append(dict(start=round(s.start, 2), end=round(s.end, 2), text=s.text.strip()))
+        res.append(dict(start=round(s.start, 2), end=round(s.end, 2), text=s.text.strip(),
+                        no_speech=round(s.no_speech_prob, 3), logprob=round(s.avg_logprob, 3)))
         print(f"progress {int(s.end * 10)}/{int(dur * 10)}", flush=True)
+    res = clean_segments(res)
     json.dump(dict(language=info.language, segments=res), open(out, "w", encoding="utf8"), ensure_ascii=False)
     os.remove(wav)
     print("progress 1/1", flush=True)
@@ -103,7 +106,9 @@ def transcribe_batch(list_json, model="small"):
         else:
             try:
                 segs, info = m.transcribe(wav, vad_filter=True)
-                res = [dict(start=round(s.start, 2), end=round(s.end, 2), text=s.text.strip()) for s in segs]
+                from textnorm import clean_segments
+                res = clean_segments([dict(start=round(s.start, 2), end=round(s.end, 2), text=s.text.strip(),
+                                           no_speech=round(s.no_speech_prob, 3), logprob=round(s.avg_logprob, 3)) for s in segs])
                 json.dump(dict(language=info.language, segments=res), open(out, "w", encoding="utf8"), ensure_ascii=False)
             except Exception as e:  # keep going on a bad file
                 json.dump(dict(language=None, segments=[], note=f"error: {e}"), open(out, "w", encoding="utf8"), ensure_ascii=False)

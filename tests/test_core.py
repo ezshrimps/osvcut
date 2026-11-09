@@ -183,6 +183,14 @@ def test_traditional_simplified_folding():
     assert norm("我們說 Boat") == "我们说 boat"
 
 
+def test_hallucination_filter():
+    from textnorm import clean_segments
+    segs = [{"text": "You"}, {"text": "Thanks for watching!"}, {"text": "Eu me assino!"},
+            {"text": "Where's our boat?"}, {"text": "You are right"},
+            {"text": "uh", "no_speech": 0.9, "logprob": -1.2}, {"text": "ok", "no_speech": 0.9, "logprob": -0.3}]
+    assert [s["text"] for s in clean_segments(segs)] == ["Where's our boat?", "You are right", "ok"]
+
+
 # ---------------------------------------------------------------- runner
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

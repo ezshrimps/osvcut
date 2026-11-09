@@ -66,7 +66,8 @@ def speech_summary(cid):
     if hit and hit[0] == mt:
         return hit[1]
     try:
-        segs = json.load(open(tp, encoding="utf8")).get("segments", [])
+        from textnorm import clean_segments
+        segs = clean_segments(json.load(open(tp, encoding="utf8")).get("segments", []))
     except Exception:
         segs = []
     txt = " ".join(sg["text"] for sg in segs)
@@ -260,7 +261,10 @@ class Handler(RangeHandler):
                     return self._json({"error": str(e)}, 500)
             out = analysis.transcript_path(c["id"])
             if os.path.exists(out):
-                return self._json(dict(status="done", **json.load(open(out, encoding="utf8"))))
+                from textnorm import clean_segments
+                tx = json.load(open(out, encoding="utf8"))
+                tx["segments"] = clean_segments(tx.get("segments", []))
+                return self._json(dict(status="done", **tx))
             if not c.get("audio"):
                 return self._json(dict(status="done", language=None, segments=[], note="no audio"))
             j = next((j for j in JOBS.values() if j["kind"] == "transcript" and j["clip"] == c["id"]
@@ -280,7 +284,8 @@ class Handler(RangeHandler):
                     if not os.path.exists(tp):
                         continue
                     try:
-                        segs = json.load(open(tp, encoding="utf8")).get("segments", [])
+                        from textnorm import clean_segments
+                        segs = clean_segments(json.load(open(tp, encoding="utf8")).get("segments", []))
                     except Exception:
                         continue
                     for sg in segs:
