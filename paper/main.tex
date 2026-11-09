@@ -9,6 +9,10 @@
 \usepackage{hyperref}
 \usepackage{url}
 \usepackage{caption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
 \hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
 
 \newcommand{\figplaceholder}[2]{\fbox{\parbox[c][#2][c]{0.95\linewidth}{\centering\small\color{gray} #1}}}
@@ -47,6 +51,32 @@ Our contributions are:
 \item \textbf{An evaluation protocol} with a method-agnostic disagreement metric, a parallax-heavy subset and a no-seam reference for temporal stability, plus a blind pairwise study tool (\S\ref{sec:eval}).
 \item \textbf{A scriptable editing system}: a JSON render specification, AI-readable contact sheets, IMU motion and speech timelines, subject following and multi-clip sequences, exposed through an HTTP API and a browser studio (\S\ref{sec:system}).
 \end{enumerate}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners=2pt, align=center, font=\footnotesize, minimum height=0.9cm, inner sep=3pt, fill=gray!6},
+  arr/.style={-{Stealth[length=2mm]}, thick},
+  node distance=0.45cm and 0.55cm]
+  \node[box] (osv) {\texttt{.OSV}\\(ISO-BMFF)};
+  \node[box, right=of osv, yshift=0.65cm] (hevc) {2$\times$ HEVC\\fisheye};
+  \node[box, right=of osv, yshift=-0.65cm] (djmd) {\texttt{djmd}\\calib.\ + IMU};
+  \node[box, right=of hevc] (seam) {seam engine\\{\scriptsize masks $\cdot$ gains $\cdot$ flow $\cdot$ DP}};
+  \node[box, right=of djmd] (level) {levelling\\{\scriptsize IMU$\to$body map}};
+  \node[box, right=1.0cm of seam, yshift=-0.65cm] (render) {renderer\\{\scriptsize keyframes $\cdot$ eye-offset}};
+  \node[box, right=of render] (mp4) {MP4\\(NVENC)};
+  \node[box, below=1.1cm of level, xshift=0.8cm] (proxy) {proxy + rig\\{\scriptsize live WebGL stitch}};
+  \node[box, right=of proxy] (studio) {studio / MCP\\{\scriptsize look $\cdot$ track $\cdot$ cut}};
+  \draw[arr] (osv) -- (hevc); \draw[arr] (osv) -- (djmd);
+  \draw[arr] (hevc) -- (seam); \draw[arr] (djmd) -- (level); \draw[arr] (djmd) -- (seam);
+  \draw[arr] (seam) -- (render); \draw[arr] (level) -- (render); \draw[arr] (render) -- (mp4);
+  \draw[arr] (hevc.south) ++(0,-0.1) |- (proxy.west);
+  \draw[arr] (proxy) -- (studio);
+  \draw[arr, dashed] (studio.north) |- (render.south);
+\end{tikzpicture}
+\caption{Pipeline. Footage is read with ffmpeg and a schema-free protobuf decoder; the seam engine and IMU levelling feed a GPU renderer driven by a JSON specification. A fast dual-fisheye proxy plus a small rig description lets the browser studio stitch live; the studio and an MCP server issue render specifications (dashed).}
+\label{fig:pipeline}
+\end{figure}
 
 % ---------------------------------------------------------------------------
 \section{Related work}
@@ -88,6 +118,27 @@ We unwrap both lenses along the seam band (latitude $\beta\in[-8^\circ,8^\circ]$
 \paragraph{Ruled out.} (i) \emph{Vignetting}: the median radial luminance profile is flat ($\pm4\%$) to $96^\circ$. (ii) \emph{Rolling shutter}: over 40 frames with angular speeds of $5$--$533^\circ$/s, seam flow does not grow with speed (Pearson $r=0.09$). Because a rolling-shutter displacement depends on azimuth (a seam point may be read near the top of one sensor and the bottom of the other) and could cancel in such a summary, we also fit a per-pixel model: with readout time $\tau$ and body angular velocity $\omega$ from the IMU, the second lens sees a seam direction $u$ later by $\Delta t=\tau(y_1-y_0)/H$, predicting a displacement $-(\omega\times u)\,\Delta t$. Over $\sim$1.5\,M confident pixels from 30 frames per clip, the fit explains nothing ($R^2\le0.000$, identical to a control with $\omega$ from shuffled frames). (iii) \emph{Calibration error}: per $10^\circ$ azimuth bin, the confident flow has no bias that persists across 30 frames (RMS of the per-bin mean $0.04^\circ$ against a per-frame spread of $0.12^\circ$; no bin with $|t|>4$ on one clip, one on the other), so large local misalignments are frame-specific. (iv) \emph{A gravity-aligned ground plane}: fitting $\Delta\beta = k\sin(-\mathrm{el}) + c$ to confident seam flow below the horizon gives $R^2\le0.07$, with $k$ changing sign between clips. (v) A large share of the remaining lens-to-lens difference on texture is not geometric: even after raw-flow alignment the mean absolute difference on textured pixels falls only from $38.4$ to $34.1$ grey levels (from $36.0$ to $32.0$ with anti-aliased sampling), reflecting edge-of-field blur, chromatic aberration and noise.
 
 The last point motivates our design: the transition should run where the two lenses \emph{agree}, not through the geometric centre of the overlap.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.95\linewidth, height=4.6cm, xmin=0, xmax=360, ymin=-0.5, ymax=0.5,
+  xlabel={azimuth on the seam ring (deg)}, ylabel={across-seam flow (deg)},
+  label style={font=\footnotesize}, ticklabel style={font=\footnotesize},
+  xtick={0,60,...,360}, ymajorgrids, grid style={gray!25},
+  legend style={font=\footnotesize, at={(0.02,0.97)}, anchor=north west, legend columns=2}]
+\addplot+[only marks, mark=*, mark size=1.4pt, blue!70!black, error bars/.cd, y dir=both, y explicit]
+  table[x=az, y=db, y error=sdb] {data/bias_beach.dat};
+\addplot+[only marks, mark=square*, mark size=1.3pt, orange!80!black, error bars/.cd, y dir=both, y explicit]
+  table[x expr=\thisrow{az}+2, y=db, y error=sdb] {data/bias_trail.dat};
+\addplot[black, thin, domain=0:360] {0};
+\legend{clip A (30 frames), clip B (30 frames)}
+\end{axis}
+\end{tikzpicture}
+\caption{Per-azimuth lens-to-lens flow across the seam: mean over 30 frames $\pm$ one s.d. A calibration error would appear as a bias that persists across frames; none does (RMS of the means $0.04^\circ$).}
+\label{fig:bias}
+\end{figure}
 
 % ---------------------------------------------------------------------------
 \section{Seam method}\label{sec:seam}
@@ -138,6 +189,31 @@ Flow + DP path, $\pm3^\circ$     & 0.071 [.066,.076] & 0.097 & 0.086 & 0.884 & \
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar, bar width=9pt, width=0.95\linewidth, height=5.2cm, ymin=0, ymax=0.15,
+  ylabel={contribution disagreement}, ylabel style={font=\footnotesize},
+  symbolic x coords={Feathered,DP cut,Flow centred,Flow+DP 3,Ours},
+  xtick=data, xticklabel style={font=\footnotesize, align=center},
+  yticklabel style={font=\footnotesize, /pgf/number format/fixed, /pgf/number format/precision=2},
+  legend style={font=\footnotesize, at={(0.98,0.97)}, anchor=north east, legend columns=2},
+  enlarge x limits=0.13, ymajorgrids, grid style={gray!25},
+  error bars/y dir=both, error bars/y explicit]
+\addplot+[fill=gray!45, draw=gray!70] coordinates {
+  (Feathered,0.1007) +- (0,0.0079) (DP cut,0.0706) +- (0,0.0043) (Flow centred,0.0853) +- (0,0.0062)
+  (Flow+DP 3,0.0711) +- (0,0.0052) (Ours,0.0629) +- (0,0.0041)};
+\addplot+[fill=orange!60, draw=orange!80!black] coordinates {
+  (Feathered,0.1334) +- (0,0.0067) (DP cut,0.0923) +- (0,0.0042) (Flow centred,0.1187) +- (0,0.0059)
+  (Flow+DP 3,0.0972) +- (0,0.0048) (Ours,0.0836) +- (0,0.0039)};
+\legend{all seam pixels, parallax-heavy subset}
+\end{axis}
+\end{tikzpicture}
+\caption{Contribution disagreement (lower is better) over 100 frames from 20 clips, with 95\% bootstrap intervals. ``Flow+DP 3'' uses a $\pm3^\circ$ transition, ``Ours'' $\pm1.5^\circ$.}
+\label{fig:bench}
+\end{figure}
 
 \paragraph{Results.} Table~\ref{tab:bench}. Against the minimum-difference cut, our seam has lower CD on 79/100 frames (Wilcoxon $p=1.6\times10^{-13}$) and lower CD on the hard subset on 82/100 ($p=1.7\times10^{-10}$); the cut keeps slightly crisper edges on the hard subset (edge deviation $+0.014$, $p=0.022$) and, by construction, higher fidelity. Against the feathered stitch our seam is better on every metric except the exposure step (n.s., $p=0.25$). Centring a flow morph in the overlap is clearly worse than placing it on the minimum-disagreement path, and a narrow transition beats a wide one.
 
