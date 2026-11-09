@@ -185,13 +185,15 @@ def _spec(clip_id, start, end, keys=None, size=(1920, 1080), fps=30, speed=1.0, 
     return s
 
 
-def render_cut(clip_id, start, end, keys=None, aspect="16:9", fps=30, speed=1.0, title="", projection="flat", nadir_patch=0, grade=None, captions="off"):
+def render_cut(clip_id, start, end, keys=None, aspect="16:9", fps=30, speed=1.0, title="", projection="flat", nadir_patch=0, grade=None, captions="off", freeze_at=None, freeze_seconds=2.0, freeze_turn=360.0):
     size = {"16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:5": [1080, 1350], "2.39:1": [1920, 816]}.get(aspect, [1920, 1080])
     spec = _spec(clip_id, start, end, keys, size, fps, speed)
     if nadir_patch:
         spec["nadir_patch"] = float(nadir_patch)
     if grade:
         spec["grade"] = {k: float(v) for k, v in grade.items() if k in ("exposure", "contrast", "saturation", "temperature")}
+    if freeze_at is not None:          # freeze orbit: picture stops at freeze_at while the camera turns
+        spec["freeze"] = dict(at=float(freeze_at), dur=float(freeze_seconds), turn=float(freeze_turn))
     if captions in ("burn", "soft"):   # subtitles from the clip's speech transcript (clip time = source time)
         tx = _get(f"/api/clip/{clip_id}/transcript")
         segs = [dict(start=x["start"], end=x["end"], text=x["text"]) for x in (tx.get("segments") or [])
@@ -266,6 +268,8 @@ TOOLS = {
                     "fps": {"type": "integer", "default": 30}, "speed": {"type": "number", "default": 1.0}, "title": {"type": "string"},
                     "grade": {"type": "object", "description": "colour grade: exposure (EV, -2..2), contrast (-0.5..0.5), saturation (-1..1), temperature (-1..1, warm > 0)",
                               "properties": {"exposure": {"type": "number"}, "contrast": {"type": "number"}, "saturation": {"type": "number"}, "temperature": {"type": "number"}}},
+                    "freeze_at": {"type": "number", "description": "freeze orbit ('bullet time'): clip time where the picture stops while the camera turns (not with speed != 1)"},
+                    "freeze_seconds": {"type": "number", "default": 2.0}, "freeze_turn": {"type": "number", "default": 360.0, "description": "degrees of yaw during the freeze"},
                     "captions": {"type": "string", "enum": ["off", "burn", "soft"], "default": "off",
                                  "description": "subtitles from the speech transcript: burned into the picture, or a soft track + .srt"},
                     "nadir_patch": {"type": "number", "default": 0, "description": "cover the area below the camera (hand / stick) with a smooth patch of this radius in degrees, e.g. 12"},

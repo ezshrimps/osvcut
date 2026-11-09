@@ -255,41 +255,62 @@ def render(spec):
     else:                                   # slow motion / fast forward: pick source frames by output time
         step=1; fps_out=float(fps)
     reader=FrameReader(f,t0,t1,step,W,hw=spec.get("decode","nvdec")!="cpu")
+    # freeze orbit ("bullet time"): at source time `at` the picture stops for `dur` s while the camera turns
+    fz=spec.get("freeze")
+    if fz and abs(speed-1)>1e-6: raise ValueError("freeze cannot be combined with speed")
+    fz_at=float(fz["at"]) if fz else None; fz_n=int(round(float(fz.get("dur",2.0))*(srcfps/step))) if fz else 0
+    fz_turn=float(fz.get("turn",360.0)) if fz else 0.0
     def timed_frames():
         if abs(speed-1)<1e-6:
-            for j,raw in enumerate(reader): yield t0+j*step/srcfps,raw
+            done=False
+            for j,raw in enumerate(reader):
+                t=t0+j*step/srcfps
+                yield t,raw,None
+                if fz and not done and t>=fz_at:
+                    done=True
+                    for q in range(fz_n): yield t,raw,(q+1)/fz_n
         else:
             n=0
             for j,raw in enumerate(reader):
                 tsrc=t0+j/srcfps
                 while t0+n*speed/fps_out<=tsrc+0.5/srcfps and t0+n*speed/fps_out<t1:
-                    yield tsrc,raw; n+=1
+                    yield tsrc,raw,None; n+=1
     atempo=[]
     if abs(speed-1)>1e-6:
         sp=speed
         while sp<0.5: atempo.append(0.5); sp/=0.5
         while sp>2.0: atempo.append(2.0); sp/=2.0
         atempo.append(sp)
+    amap=["-map","1:a?"]
+    if fz:
+        has_a=bool(subprocess.run(["ffprobe","-v","error","-select_streams","a","-show_entries","stream=index","-of","csv=p=0",f],capture_output=True,text=True).stdout.strip())
+        if has_a:
+            rel=max(0.0,fz_at-t0); fdur=fz_n/(srcfps/step); af="aformat=sample_rates=48000:channel_layouts=stereo"
+            amap=["-filter_complex",f"[1:a]{af},asplit=2[x][y];[x]atrim=0:{rel:.3f},asetpts=PTS-STARTPTS[a1];[y]atrim={rel:.3f},asetpts=PTS-STARTPTS[a2];"
+                  f"anullsrc=r=48000:cl=stereo,atrim=0:{fdur:.3f}[sl];[a1][sl][a2]concat=n=3:v=0:a=1[aout]","-map","[aout]"]
     enc=subprocess.Popen(["ffmpeg","-v","error","-y","-f","rawvideo","-pix_fmt","rgb24","-s",f"{Wo}x{Ho}","-r",str(fps_out),"-i","-",
-        "-ss",str(t0),"-to",str(t1),"-i",f,"-map","0:v","-map","1:a?"]+(["-af",",".join(f"atempo={a:.6f}" for a in atempo)] if atempo else [])+["-c:v","h264_nvenc","-preset","p5","-cq",str(spec.get("cq",20)),"-pix_fmt","yuv420p","-c:a","aac"]+(["-shortest"] if not atempo else [])+(["-r",str(fps)] if spec.get("force_fps") else [])+[spec["dst"]],stdin=subprocess.PIPE)
+        "-ss",str(t0),"-to",str(t1),"-i",f,"-map","0:v"]+amap+(["-af",",".join(f"atempo={a:.6f}" for a in atempo)] if atempo else [])+["-c:v","h264_nvenc","-preset","p5","-cq",str(spec.get("cq",20)),"-pix_fmt","yuv420p","-c:a","aac"]+(["-shortest"] if not atempo else [])+(["-r",str(fps)] if spec.get("force_fps") else [])+[spec["dst"]],stdin=subprocess.PIPE)
     writer=FrameWriter(enc)
     from concurrent.futures import ThreadPoolExecutor
     seam_async=bool(spec.get("seam_async",True)) and smart
     pool=ThreadPoolExecutor(1) if seam_async else None; pending=None; eng_ready=True
     every=max(1,int(spec.get("seam_every",1))); i=0
-    total=max(1,int((t1-t0)/speed*fps_out)); eq_base=None
-    for t,raw in timed_frames():
+    total=max(1,int((t1-t0)/speed*fps_out))+fz_n; eq_base=None
+    for t,raw,fzp in timed_frames():
         i+=1
         im=yuv420_to_rgb(raw,W,2*W)
         imgs=[im[None,:,:,:W],im[None,:,:,W:]]
         M=Ms[min(np.searchsorted(ts,t),len(Ms)-1)]
         if i%10==0: print(f"progress {i}/{total}",flush=True)
         vmask=None
+        dyaw=0.0
+        if fzp is not None:
+            u=fzp*fzp*(3-2*fzp); dyaw=fz_turn*u
         if mode=="equirect":
             if eq_base is None: eq_base=view_dirs("equirect",Wo,Ho)
-            base=eq_base; C=np.eye(3)
+            base=eq_base; C=cam_rot(dyaw,0) if dyaw else np.eye(3)
         else:
-            k=interp_kf(kfs,t-t0); C=cam_rot(k["yaw"],k["pitch"])
+            k=interp_kf(kfs,t-t0); C=cam_rot(k["yaw"]+dyaw,k["pitch"])
             if k.get("dist",0)>1e-3: base,vmask=view_dirs_eye(Wo,Ho,k["fov"],k["dist"])
             else: base=view_dirs("flat",Wo,Ho,k["fov"])
         Mt=torch.tensor(M@C,dtype=torch.float32,device=dev)
