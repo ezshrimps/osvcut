@@ -21,12 +21,13 @@ DJI Studio (and plug-ins such as OpenOSV) are GUI-first. To let an AI edit 360 f
 | Seam engine (`seam.py`) | Lens-validity masks (image circle + body/handle occlusion arc + frame edges), per-azimuth exposure/colour compensation in linear light, **optical-flow morphing across an overlap-adaptive transition** (default) or min-difference DP seam |
 | Stabilisation | Horizon levelling from the IMU (empirically derived IMU→body axis map) + smoothed heading |
 | Reframing | Virtual camera keyframes (yaw / pitch / fov, smoothstep easing) → 16:9 / 9:16 / 1:1 MP4 via NVENC |
-| Studio (`server.py` + `viewer/`) | Library of every OSV under a folder with stitched, levelled panorama thumbnails; one-click preview generation (3 quality presets) with progress; WebGL 360 viewer (perspective / wide / little-planet / crystal-ball), minimap with view footprint, horizon grid, A/B seam comparison |
+| Studio (`server.py` + `viewer/`) | Library of every OSV under a folder with stitched, levelled panorama thumbnails; one-click preview generation (3 quality presets) with progress; WebGL 360 viewer (perspective / wide / little-planet / crystal-ball), minimap with view footprint, horizon grid, seam-inspection overlay, A/B seam comparison |
+| Geometry note | Calibration intrinsics are stored for a 3840-px lens image; the stream scale is `W/3840` (`stitch.lens_scale`). Reading `digital_focal_length/fx` instead (1.3 % larger) misregisters the lenses by ~2.8° around the seam — see `docs/RESEARCH_LOG.md` E29 |
 | Live preview | Opening any clip auto-builds a dual-fisheye proxy (GPU decode/scale, ~4× real time) plus a rig JSON (lens model, usable radii, exposure balance, 15 Hz levelling quaternions); the WebGL shader stitches and levels it in real time. Exports still use the full flow seam |
 | Timeline | IMU motion curve, shake markers, speech segments (faster-whisper transcript, clickable), keyframes, in/out points (`I` / `O`) |
 | Subject follow | Shift+drag a box around a person → GPU-rendered tracking views + OpenCV MIL tracker with automatic re-aiming → dense linear keyframes, previewed live and exportable |
 | Export | Keyframed yaw / pitch / fov / distortion (little planet etc.) to 16:9 / 9:16 / 1:1 / 4:5 / 2.39:1 MP4, slow motion / fast forward, multi-clip sequences with background music, or a full levelled 360 MP4 with spherical metadata (YouTube / VR) |
-| Metrics | `tools_flicker.py` – seam flicker vs. a single-lens no-seam reference; `seamdiag.py` – per-azimuth misalignment and exposure ratio along the seam |
+| Metrics | `tools_flicker.py` – seam flicker vs. a single-lens no-seam reference; `seamdiag.py` – per-azimuth misalignment and exposure ratio along the seam; `tools_scale_check.py`, `tools_ring_disparity.py` – stream-scale check and wide-search across-seam disparity |
 
 ## Quick start
 
