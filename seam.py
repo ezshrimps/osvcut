@@ -121,8 +121,9 @@ def _dp_closed_path(cost, pen=0.002):
 
 
 class SmartStitch:
-    def __init__(self, cal, lenses, device="cuda", band=4.0, ares=0.5, bres=0.1, blend=1.0,
+    def __init__(self, cal, lenses, device=None, band=4.0, ares=0.5, bres=0.1, blend=1.0,
                  gain_bins=72, gain_ema=0.85, seam_ema=0.5, lam_t=0.6):
+        device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.dev = device
         self.lenses = lenses
         self._tls = threading.local()      # per-thread scratch (analysis may run in a worker thread)
@@ -254,8 +255,9 @@ class FlowStitch(SmartStitch):
     band, then both images are morphed toward each other across a transition zone so that
     near objects stay single and continuous instead of doubling or being cut."""
 
-    def __init__(self, cal, lenses, device="cuda", fband=4.5, fres=0.2, ramp=1.5, flow_ema=0.5,
+    def __init__(self, cal, lenses, device=None, fband=4.5, fres=0.2, ramp=1.5, flow_ema=0.5,
                  max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, **kw):
+        device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         super().__init__(cal, lenses, device=device, **kw)
         self.do_dp = False
         self.center = center          # "overlap": ramp centred in the overlap; "dp": on the min-disagreement path

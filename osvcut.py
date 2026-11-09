@@ -3,7 +3,7 @@ import json, subprocess, sys, math, numpy as np, torch, torch.nn.functional as F
 from djmd import packets, tree, get, djmd_index
 from stitch import load_calib, qmat
 from seam import SmartStitch, FlowStitch
-dev="cuda"
+dev="cuda" if torch.cuda.is_available() else "cpu"
 P=np.array([[0,-1,0],[-1,0,0],[0,0,1.]])   # imu axes -> body axes (empirical)
 
 _ATT_CACHE={}
