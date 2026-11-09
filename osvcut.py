@@ -224,11 +224,14 @@ def add_captions(dst,captions,t0,t1,speed=1.0,mode="burn",size=(1920,1080)):
         cmd=["ffmpeg","-v","error","-y","-i",dst,"-i",srt,"-map","0","-map","1","-c","copy","-c:s","mov_text",
              "-metadata:s:s:0","language=und",tmp]
     else:
-        fs=max(16,int(min(size)*0.055))
+        # SRT is rendered on libass's default 384x288 canvas and scaled to the frame; sizes are in canvas units.
+        # Measured: 14.4 gives ~5 % of the height in landscape; portrait frames scale by width and need ~12.5
+        fs=14.4 if size[0]>=size[1] else 12.5
         # libass wants forward slashes and an escaped drive colon inside the filter argument
         esc=os.path.abspath(srt).replace("\\","/").replace(":","\\:")
-        style=f"FontName=Microsoft YaHei,FontSize={fs},PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=1,Outline=2,Shadow=0,MarginV={int(fs*1.2)}"
-        cmd=["ffmpeg","-v","error","-y","-i",dst,"-vf",f"subtitles='{esc}':original_size={size[0]}x{size[1]}:force_style='{style}'",
+        style=(f"FontName=Microsoft YaHei,FontSize={fs},PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=1,"
+               f"Outline={max(0.6,fs/12):.1f},Shadow=0,MarginV={int(fs*1.3)},MarginL={int(fs)},MarginR={int(fs)}")
+        cmd=["ffmpeg","-v","error","-y","-i",dst,"-vf",f"subtitles='{esc}':force_style='{style}'",
              "-c:v","h264_nvenc","-preset","p5","-cq","19","-c:a","copy","-movflags","+faststart",tmp]
         if subprocess.run(cmd).returncode!=0:
             cmd[cmd.index("h264_nvenc")]="libx264"; i=cmd.index("-preset"); cmd[i+1]="medium"; i=cmd.index("-cq"); cmd[i:i+2]=["-crf","19"]

@@ -89,36 +89,7 @@ def search_speech(query, limit=30):
     return [_text(chr(10).join(lines))]
 
 
-def _suggest(motion, tx, dur):
-    S = []
-    if tx and tx.get("segments"):
-        cur = None
-        for s in tx["segments"]:
-            if cur and s["start"] - cur["end"] < 1.5 and s["end"] - cur["start"] <= 8:
-                cur["end"] = s["end"]; cur["text"] += " " + s["text"]
-            else:
-                if cur:
-                    S.append(cur)
-                cur = dict(kind="talk", start=s["start"], end=s["end"], text=s["text"])
-        if cur:
-            S.append(cur)
-    if motion and motion.get("speed"):
-        sp, sh, r = motion["speed"], motion["shake"], motion["rate"]
-        q = sorted(sh)[int(len(sh) * 0.6)] if sh else 0
-        def runs(pred, minlen):
-            out, st = [], -1
-            for i in range(len(sp) + 1):
-                ok = i < len(sp) and pred(i)
-                if ok and st < 0: st = i
-                if not ok and st >= 0:
-                    if (i - st) / r >= minlen: out.append((st / r, i / r))
-                    st = -1
-            return out
-        for a, b in runs(lambda i: sp[i] < 20 and sh[i] <= max(8, q), 2.5):
-            S.append(dict(kind="calm", start=a, end=min(b, a + 8), text="steady shot (scenery / look-around)"))
-        for a, b in runs(lambda i: sp[i] > 45, 0.5):
-            S.append(dict(kind="whip", start=max(0, a - .3), end=min(dur, b + .3), text="fast rotation (whip transition)"))
-    return sorted(S, key=lambda s: s["start"])
+from autoedit import suggest as _suggest   # shared with the studio's one-click edit
 
 
 def clip_overview(clip_id, frames=6, wait_transcript=90):
@@ -251,6 +222,14 @@ def render_sequence(cuts, title="", aspect="16:9", fps=30, projection="flat", tr
     return [_text(f"sequence job {j['id']} queued with {len(specs)} cuts. Poll job_status.")]
 
 
+def auto_edit(clip_ids, seconds=30, aspect="16:9", transition="fade", captions="burn", title=""):
+    j = _post("/api/jobs", dict(kind="autoedit", clip_ids=list(clip_ids), seconds=float(seconds), aspect=aspect,
+                                transition=transition, captions=captions, title=title or None))
+    if "id" not in j:
+        raise ValueError(j.get("error") or "request failed")
+    return [_text(f"auto edit started: job {j['id']} -> {j.get('output')}. Use job_status to wait for it.")]
+
+
 def job_status(job_id, wait_seconds=0):
     j = _wait_job(job_id, wait_seconds) if wait_seconds else next((j for j in _get("/api/jobs") if j["id"] == job_id), None)
     if not j:
@@ -300,6 +279,12 @@ TOOLS = {
                          "transition_seconds": {"type": "number", "default": 0.5},
                          "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5", "2.39:1"], "default": "16:9"}, "fps": {"type": "integer", "default": 30}},
                         ["cuts"]),
+    "auto_edit": (auto_edit, "One-click film from several clips: picks talk segments (framed on the selfie-stick holder, with captions) and steady scenery (slow pan), joins them with transitions. Good first draft; refine with render_sequence.",
+                  {"clip_ids": {"type": "array", "items": {"type": "string"}}, "seconds": {"type": "number", "default": 30},
+                   "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5"], "default": "16:9"},
+                   "transition": {"type": "string", "enum": ["cut", "fade", "fadeblack", "wipeleft", "circleopen"], "default": "fade"},
+                   "captions": {"type": "string", "enum": ["off", "burn", "soft"], "default": "burn"}, "title": {"type": "string"}},
+                  ["clip_ids"]),
     "job_status": (job_status, "Status of a render/track job; wait_seconds > 0 blocks until it finishes (up to that long).",
                    {"job_id": {"type": "string"}, "wait_seconds": {"type": "integer", "default": 0}}, ["job_id"]),
 }

@@ -379,6 +379,20 @@ class Handler(RangeHandler):
                           open(spec["dst"][:-4] + ".json", "w", encoding="utf8"), ensure_ascii=False, indent=1)
                 job = new_job("export", title, spec, cid)
                 return self._json({k: v for k, v in job.items() if not k.startswith("_")})
+            if kind == "autoedit":
+                # one-click edit: pick highlights from the given clips, frame them, then run as a sequence
+                import autoedit
+                clips = [LIB.get(cid) for cid in (b.get("clip_ids") or [])]
+                clips = [c for c in clips if c and c.get("lenses") == 2]
+                if not clips:
+                    return self._json({"error": "no usable clips"}, 400)
+                plan = autoedit.plan(clips, seconds=float(b.get("seconds", 30)), aspect=b.get("aspect", "16:9"),
+                                     transition=b.get("transition", "fade"), captions=b.get("captions", "burn"))
+                if not plan["specs"]:
+                    return self._json({"error": "no talk or steady segments found in these clips"}, 400)
+                b = dict(kind="sequence", specs=plan["specs"], size=plan["size"], fps=plan["fps"], music=b.get("music"),
+                         transition=plan.get("transition"), title=b.get("title") or f"一键成片 · {len(plan['specs'])} 段")
+                kind = "sequence"
             if kind == "sequence":
                 specs = b.get("specs") or []
                 if not specs or any(not os.path.exists(x.get("src", "")) for x in specs):
