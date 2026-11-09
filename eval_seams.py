@@ -47,6 +47,9 @@ def make_engine(name, cal, lenses):
         opts["center"] = "dp"
     elif name == "flow_dp_r15":
         opts.update(center="dp", ramp=1.5)
+    elif name.startswith("pc_"):                   # path cost sweep, e.g. pc_025_002 = grad_w 0.25, centre_w 0.02 (E43)
+        g, cw = name[3:].split("_")
+        opts.update(center="dp", conf="photo", grad_w=int(g) / 100, centre_w=int(cw) / 100)
     elif name.startswith("flow_dp_rr"):            # ramp sweep, e.g. flow_dp_rr075 = +-0.75 deg (E42)
         opts.update(center="dp", ramp=int(name[-3:]) / 100, conf="photo")
     elif name == "flow_dp_r3":
