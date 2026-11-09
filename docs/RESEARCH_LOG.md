@@ -211,6 +211,12 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **R.** CD unchanged (same contributions); edge deviation 0.0594 vs 0.0648 (79/100 frames better, p = 2.9e-6); exposure step 0.0233 vs 0.0245 (63/100, p = 0.047); fidelity −0.022 (low frequencies are mixed); edge-hard 73/100 frames better but mean +0.0003 (p = 0.016, mixed). Render overhead +2 ms after the downsampled blur (+166 ms with a full-resolution 190-tap blur).
 **C.** A small, real reduction of brightness steps and seam edge energy; kept as an option (`"seam_opts": {"bands": 2}`), not the default.
 
+## E24 — Photometric flow confidence instead of forward–backward consistency
+
+**M.** FlowStitch(conf="photo"): confidence = exp(−(r/30)²)·clip(texture) with r the blurred residual |A − B(p+F)|, saving the backward Farneback pass. Calibration on one frame: correlation with the forward–backward confidence only r = 0.0–0.14 for any parameters (residual is dominated by non-geometric differences, E12). Paired benchmark (E11 protocol, n = 100).
+**R.** Analysis 51 → 34 ms per update (total 188 → 170 ms per 3840×1920 frame). CD 0.0621 vs 0.0629 (82/100 better, p = 8.9e-10), CD-hard 80/100 better (p = 2.7e-9); edge deviation worse (0.0700 vs 0.0648, 32/100 better, p = 3.2e-4); fidelity and step n.s.
+**C.** A speed/edge trade-off. Exports keep forward–backward confidence; the studio's standard preview preset uses the photometric one.
+
 ---
 
 ## Open questions / next experiments

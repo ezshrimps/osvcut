@@ -256,12 +256,13 @@ class FlowStitch(SmartStitch):
     near objects stay single and continuous instead of doubling or being cut."""
 
     def __init__(self, cal, lenses, device=None, fband=4.5, fres=0.2, ramp=1.5, flow_ema=0.5,
-                 max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, **kw):
+                 max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, conf="fb", **kw):
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         super().__init__(cal, lenses, device=device, **kw)
         self.do_dp = False
         self.center = center          # "overlap": ramp centred in the overlap; "dp": on the min-disagreement path
-        self.bands, self.wide_deg = int(bands), float(wide_deg)   # 2 = two-band blend (low freq. over wide_deg)
+        self.bands, self.wide_deg = int(bands), float(wide_deg)
+        self.conf_mode = conf          # "fb": forward-backward consistency (2 flows); "photo": residual after warping (1 flow)   # 2 = two-band blend (low freq. over wide_deg)
         self.fpath = None
         self.fband, self.fres, self.ramp, self.flow_ema, self.max_flow = fband, fres, ramp, flow_ema, max_flow
         a = torch.arange(0, 360, fres, device=device) * math.pi / 180
@@ -316,13 +317,20 @@ class FlowStitch(SmartStitch):
         fb = lambda a, b: cv2.calcOpticalFlowFarneback(a, b, None, 0.5, 3, 11, 4, 5, 1.1, 0)
         F_ = fb(wrap(gA), wrap(gB))[:, pad:-pad]
         # forward-backward consistency -> confidence
-        Fb = fb(wrap(gB), wrap(gA))[:, pad:-pad]
         H, W = gA.shape
         xs, ys = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32))
-        bx = cv2.remap(Fb[..., 0], (xs + F_[..., 0]) % W, ys + F_[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        by = cv2.remap(Fb[..., 1], (xs + F_[..., 0]) % W, ys + F_[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        fb_err = np.hypot(F_[..., 0] + bx, F_[..., 1] + by)
-        conf = both * np.exp(-(fb_err / 1.5) ** 2)
+        if self.conf_mode == "photo":
+            # confidence from how well the flow explains the images: blurred residual after warping
+            Bw = cv2.remap(gB.astype(np.float32), (xs + F_[..., 0]) % W, ys + F_[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            res = cv2.GaussianBlur(np.abs(gA.astype(np.float32) - Bw), (0, 0), 1.5)
+            tex = cv2.GaussianBlur(np.abs(cv2.Laplacian(gA.astype(np.float32), cv2.CV_32F)), (0, 0), 1.5)
+            conf = both * np.exp(-(res / 30.0) ** 2) * np.clip(tex / 1.0, 0, 1)
+        else:
+            Fb = fb(wrap(gB), wrap(gA))[:, pad:-pad]
+            bx = cv2.remap(Fb[..., 0], (xs + F_[..., 0]) % W, ys + F_[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            by = cv2.remap(Fb[..., 1], (xs + F_[..., 0]) % W, ys + F_[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            fb_err = np.hypot(F_[..., 0] + bx, F_[..., 1] + by)
+            conf = both * np.exp(-(fb_err / 1.5) ** 2)
         # normalised convolution: fill unreliable areas from reliable neighbours, decay to 0
         sig = 1.5 / self.fres
         def blur(x):

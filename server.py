@@ -35,7 +35,7 @@ for d in (PREVIEWS, EXPORTS, SPECS, TRACKS, PROXIES, MUSIC):
 
 PREVIEW_PRESETS = {
     "fast": dict(size=[1920, 960], fps=25, cq=26, seam="smart"),
-    "standard": dict(size=[2880, 1440], fps=30, cq=23, seam="flow"),
+    "standard": dict(size=[2880, 1440], fps=30, cq=23, seam="flow", seam_opts={"conf": "photo"}),
     "high": dict(size=[3840, 1920], fps=50, cq=20, seam="flow"),
 }
 
