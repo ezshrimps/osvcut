@@ -23,6 +23,13 @@ header h1 span{color:var(--accent)}
 header h1{white-space:nowrap}
 .tabs button.on{background:var(--panel2);color:var(--text)}
 header .hint{margin-left:auto;color:var(--dim);font-size:12px}
+#helpBtn{order:10;margin-left:8px;width:26px;height:26px;border-radius:50%;padding:0;flex:none}
+.help{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:30}
+.help.on{display:flex}
+.helpbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;max-width:640px}
+.helpbox h3{display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;font-size:14px}
+.helpbox td{padding:5px 10px 5px 0;font-size:12px}
+.helpbox td:nth-child(odd){color:var(--dim);white-space:nowrap}
 kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;color:var(--text)}
 
 main{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0}
@@ -201,7 +208,7 @@ body.bt .btview .btpair img{cursor:default}
   <header>
     <h1><span>osv</span>cut studio</h1>
     <div class="tabs"><button id="tabLib">素材库</button><button id="tab360" class="on">360° 查看</button><button id="tabFlat">成片 &amp; 任务 <span id="jobdot"></span></button><button id="tabBt">拼缝盲测</button></div>
-    <div class="hint">拖动转视角 · 滚轮缩放 · <kbd>空格</kbd> 播放 · <kbd>←</kbd><kbd>→</kbd> ±1s · <kbd>K</kbd> 关键帧（时间线上可拖动 / 右键删）· <kbd>Shift</kbd>+拖框 跟随 · <kbd>I</kbd>/<kbd>O</kbd> 入出点 · <kbd>B</kbd> 新/旧拼接</div>
+    <button class="btn" id="helpBtn" title="快捷键 (?)">?</button><div class="hint">拖动转视角 · 滚轮缩放 · <kbd>空格</kbd> 播放 · <kbd>←</kbd><kbd>→</kbd> ±1s · <kbd>K</kbd> 关键帧（时间线上可拖动 / 右键删）· <kbd>Shift</kbd>+拖框 跟随 · <kbd>I</kbd>/<kbd>O</kbd> 入出点 · <kbd>B</kbd> 新/旧拼接</div>
   </header>
 
   <main>
@@ -265,6 +272,18 @@ body.bt .btview .btpair img{cursor:default}
     </div>
   </main>
   <div class="toast" id="toast"></div>
+  <div class="help" id="help"><div class="helpbox">
+    <h3>快捷键 <button class="btn" id="helpClose">关闭</button></h3>
+    <table>
+      <tr><td><kbd>空格</kbd></td><td>播放 / 暂停</td><td><kbd>←</kbd> <kbd>→</kbd></td><td>前后 1 秒</td></tr>
+      <tr><td><kbd>,</kbd> <kbd>.</kbd></td><td>逐帧</td><td><kbd>K</kbd></td><td>记录关键帧</td></tr>
+      <tr><td><kbd>I</kbd> <kbd>O</kbd></td><td>入点 / 出点</td><td><kbd>X</kbd></td><td>清除入出点</td></tr>
+      <tr><td><kbd>Shift</kbd>+拖框</td><td>跟随主体</td><td><kbd>B</kbd></td><td>新 / 旧拼缝（示例片段）</td></tr>
+      <tr><td>拖动画面</td><td>转视角</td><td>滚轮</td><td>缩放视场角</td></tr>
+      <tr><td>时间线拖动关键帧</td><td>改时间</td><td>右键关键帧</td><td>删除</td></tr>
+      <tr><td><kbd>?</kbd></td><td>本帮助</td><td>盲测页 <kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></td><td>左 / 一样 / 右</td></tr>
+    </table>
+  </div></div>
 
   <aside>
     <section>
@@ -1179,6 +1198,13 @@ function applyTemplate(kind){
   toast({planet:'小行星开场',orbit:'环绕一周',reveal:'抬头揭幕'}[kind]+'：已生成关键帧，正在预览');
 }
 document.querySelectorAll('[data-tpl]').forEach(b=>b.onclick=()=>applyTemplate(b.dataset.tpl));
+
+/* ---------- help ---------- */
+$('helpBtn').onclick=()=>$('help').classList.add('on');
+$('helpClose').onclick=()=>$('help').classList.remove('on');
+$('help').onclick=e=>{if(e.target.id==='help')$('help').classList.remove('on')};
+document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  if(e.key==='?'){$('help').classList.toggle('on')} else if(e.key==='Escape'){$('help').classList.remove('on')}});
 
 /* ---------- tabs ---------- */
 function setTab(t){
