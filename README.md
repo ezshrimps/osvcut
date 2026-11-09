@@ -61,6 +61,23 @@ Example spec:
 
 Optional: `speed` (0.25–4; slow motion uses every source frame), `cq` (quality), `seam_async` (default true), `keys[].dist` (0 rectilinear … 1 little planet), `keys[].ease` (`linear`).
 
+## Use it from an AI assistant (MCP)
+
+`mcp_server.py` exposes the studio to MCP clients (Claude Code, Claude Desktop, …). Start the studio, then:
+
+```bash
+claude mcp add osvcut -- python /path/to/osvcut/mcp_server.py
+```
+
+| Tool | What the assistant gets |
+|---|---|
+| `list_clips` | search the library (event, file, date, duration, mode) |
+| `clip_overview` | levelled 360 contact sheet (image) + transcript + camera motion + suggested segments |
+| `look` | a rendered view at any time and direction (or a little-planet overview) — the assistant can look around |
+| `track_subject` | follow a person from (t0, yaw, pitch) → camera keyframes |
+| `render_cut` / `render_sequence` | export one cut / several cuts joined (aspect, fps, speed) |
+| `job_status` | progress and output path |
+
 ## Files
 
 | File | Purpose |
@@ -73,6 +90,7 @@ Optional: `speed` (0.25–4; slow motion uses every source frame), `cq` (quality
 | `library.py`, `server.py`, `serve.py` | Library index, thumbnails, job queue, HTTP API |
 | `analysis.py` | Motion curve + transcripts (cached) |
 | `track.py` | Subject follow → camera keyframes |
+| `mcp_server.py`, `look.py` | MCP server for AI assistants; single views and contact sheets |
 | `proxy.py` | Dual-fisheye proxy + rig JSON for live browser stitching |
 | `sequence.py` | Multi-clip sequence render + lossless concat |
 | `blindtest.py` | Blind pairwise seam study |

@@ -22,6 +22,7 @@ from serve import RangeHandler          # noqa: E402
 import library as libmod                # noqa: E402
 import analysis                         # noqa: E402
 import blindtest                        # noqa: E402
+import look                             # noqa: E402
 
 PREVIEWS = os.path.join(HERE, "cache", "previews")
 TRACKS = os.path.join(HERE, "cache", "tracks")
@@ -190,6 +191,26 @@ class Handler(RangeHandler):
         if m:
             c = LIB.get(m.group(1))
             return self._json(clip_public(c) if c else {"error": "unknown clip"}, 200 if c else 404)
+        m = re.match(r"^/api/clip/([0-9a-f]{12})/(view|sheet)$", p)
+        if m:
+            c = LIB.get(m.group(1))
+            if not c:
+                return self._json({"error": "unknown clip"}, 404)
+            from urllib.parse import parse_qs
+            q = {k: v[0] for k, v in parse_qs(u.query).items()}
+            try:
+                with libmod._thumb_lock:
+                    data = look.view_jpeg(c, float(q.get("t", 0)), float(q.get("yaw", 0)), float(q.get("pitch", 0)),
+                                          float(q.get("fov", 90)), float(q.get("dist", 0)),
+                                          int(q.get("w", 960)), int(q.get("h", 540))) if m.group(2) == "view" else                         look.sheet_jpeg(c, int(q.get("n", 6)))
+            except Exception:
+                return self._json({"error": traceback.format_exc()[-600:]}, 500)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         m = re.match(r"^/api/clip/([0-9a-f]{12})/(motion|transcript)$", p)
         if m:
             c = LIB.get(m.group(1))
