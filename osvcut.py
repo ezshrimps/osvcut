@@ -148,8 +148,10 @@ class FrameWriter:
         while True:
             b=self.q.get()
             if b is None: break
-            self.enc.stdin.write(b)
-        self.enc.stdin.close()
+            try: self.enc.stdin.write(b)
+            except (BrokenPipeError, OSError): self.dead=True
+        try: self.enc.stdin.close()
+        except (BrokenPipeError, OSError): pass
     def put(self,b): self.q.put(b)
     def close(self): self.q.put(None); self.th.join()
 
@@ -175,18 +177,37 @@ def render(spec):
     ts,Ms=level_frames(f,spec.get("stabilize","level"),spec.get("smooth",1.0))
     kfs=spec.get("keys",[{"t":0,"yaw":0,"pitch":0,"fov":100}])
     srcfps=float(eval(subprocess.run(["ffprobe","-v","error","-select_streams","v:0","-show_entries","stream=r_frame_rate","-of","csv=p=0",f],capture_output=True,text=True).stdout.strip().split("\n")[0]))
-    step=max(1,round(srcfps/fps)); fps_out=srcfps/step
+    speed=float(spec.get("speed",1.0))
+    if abs(speed-1)<1e-6:
+        step=max(1,round(srcfps/fps)); fps_out=srcfps/step
+    else:                                   # slow motion / fast forward: pick source frames by output time
+        step=1; fps_out=float(fps)
     reader=FrameReader(f,t0,t1,step,W,hw=spec.get("decode","nvdec")!="cpu")
+    def timed_frames():
+        if abs(speed-1)<1e-6:
+            for j,raw in enumerate(reader): yield t0+j*step/srcfps,raw
+        else:
+            n=0
+            for j,raw in enumerate(reader):
+                tsrc=t0+j/srcfps
+                while t0+n*speed/fps_out<=tsrc+0.5/srcfps and t0+n*speed/fps_out<t1:
+                    yield tsrc,raw; n+=1
+    atempo=[]
+    if abs(speed-1)>1e-6:
+        sp=speed
+        while sp<0.5: atempo.append(0.5); sp/=0.5
+        while sp>2.0: atempo.append(2.0); sp/=2.0
+        atempo.append(sp)
     enc=subprocess.Popen(["ffmpeg","-v","error","-y","-f","rawvideo","-pix_fmt","rgb24","-s",f"{Wo}x{Ho}","-r",str(fps_out),"-i","-",
-        "-ss",str(t0),"-to",str(t1),"-i",f,"-map","0:v","-map","1:a?","-c:v","h264_nvenc","-preset","p5","-cq",str(spec.get("cq",20)),"-pix_fmt","yuv420p","-c:a","aac","-shortest"]+(["-r",str(fps)] if spec.get("force_fps") else [])+[spec["dst"]],stdin=subprocess.PIPE)
+        "-ss",str(t0),"-to",str(t1),"-i",f,"-map","0:v","-map","1:a?"]+(["-af",",".join(f"atempo={a:.6f}" for a in atempo)] if atempo else [])+["-c:v","h264_nvenc","-preset","p5","-cq",str(spec.get("cq",20)),"-pix_fmt","yuv420p","-c:a","aac"]+(["-shortest"] if not atempo else [])+(["-r",str(fps)] if spec.get("force_fps") else [])+[spec["dst"]],stdin=subprocess.PIPE)
     writer=FrameWriter(enc)
     from concurrent.futures import ThreadPoolExecutor
     seam_async=bool(spec.get("seam_async",True)) and smart
     pool=ThreadPoolExecutor(1) if seam_async else None; pending=None; eng_ready=True
     every=max(1,int(spec.get("seam_every",1))); i=0
-    total=max(1,int((t1-t0)*fps_out)); eq_base=None
-    for raw in reader:
-        t=t0+i*step/srcfps; i+=1
+    total=max(1,int((t1-t0)/speed*fps_out)); eq_base=None
+    for t,raw in timed_frames():
+        i+=1
         im=yuv420_to_rgb(raw,W,2*W)
         imgs=[im[None,:,:,:W],im[None,:,:,W:]]
         M=Ms[min(np.searchsorted(ts,t),len(Ms)-1)]
