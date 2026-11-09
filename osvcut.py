@@ -1,7 +1,7 @@
 """osvcut: OSV -> stitched / levelled / reframed video, GPU (torch).  Prototype."""
 import json, subprocess, sys, math, numpy as np, torch, torch.nn.functional as F
 from djmd import packets, tree, get, djmd_index
-from stitch import load_calib, qmat
+from stitch import load_calib, qmat, lens_scale
 from seam import SmartStitch, FlowStitch
 dev="cuda" if torch.cuda.is_available() else "cpu"
 P=np.array([[0,-1,0],[-1,0,0],[0,0,1.]])   # imu axes -> body axes (empirical)
@@ -47,7 +47,7 @@ class Lens:
     def __init__(self,cal,L):
         self.R=torch.tensor(qmat(L["q"]),dtype=torch.float32,device=dev)
         self.k=L["k"]; self.fx,self.fy,self.cx,self.cy=L["fx"],L["fy"],L["cx"],L["cy"]
-        self.s=cal["dfl"]/L["fx"]; self.W=cal["W"]
+        self.s=lens_scale(cal,L); self.W=cal["W"]
     def sample(self,img,d):   # img 1x3xWxW, d HxWx3 body dirs
         d=d@self.R.T; x,y,z=d.unbind(-1)
         th=torch.atan2(torch.hypot(x,y),z); ph=torch.atan2(y,x); t2=th*th; k=self.k

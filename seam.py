@@ -16,6 +16,7 @@ import numpy as np
 import cv2
 import torch
 import torch.nn.functional as F
+from stitch import lens_scale
 
 GAMMA = 2.2
 TH_CUT = 98.0  # hard cut (deg): beyond this the lens polynomial is not trusted
@@ -26,14 +27,14 @@ def _radius_px(L, cal, theta_deg):
     t2 = th * th
     k = L["k"]
     r = th * (1 + t2 * (k[0] + t2 * (k[1] + t2 * (k[2] + t2 * (k[3] + t2 * k[4])))))
-    return r * L["fx"] * cal["dfl"] / L["fx"]
+    return r * L["fx"] * lens_scale(cal, L)
 
 
 def build_mask(L, cal, theta_max=96.5, margin_deg=1.0):
     """Float mask in stream pixel space (1 = usable, feathered to 0 at the edges), plus the
     usable radius per image angle (720 bins) used to clamp rays into the valid area."""
     W = cal["W"]
-    s = cal["dfl"] / L["fx"]
+    s = lens_scale(cal, L)
     cx, cy = W / 2 + (L["cx"] - 1920) * s, W / 2 + (L["cy"] - 1920) * s
     m = np.zeros((W, W), np.uint8)
     sh = 4  # sub-pixel drawing
@@ -49,7 +50,7 @@ def build_mask(L, cal, theta_max=96.5, margin_deg=1.0):
         far = [c + (p - c) * 1.8 for p in (arc[-1], pts[7], arc[0])]
         poly = np.vstack([arc, far])
         cv2.fillPoly(m, [np.round(poly * 16).astype(np.int32)], 0, cv2.LINE_AA, sh)
-    px_per_deg = cal["dfl"] * math.pi / 180
+    px_per_deg = L["fx"] * s * math.pi / 180
     margin = max(1, int(round(margin_deg * px_per_deg)))
     m = cv2.erode(m, np.ones((2 * margin + 1, 2 * margin + 1), np.uint8))
     # usable radius per angle (image coords, y down), from the hard mask

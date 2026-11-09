@@ -25,13 +25,24 @@ def equirect_dirs(Wo,Ho):
     lon,lat=np.meshgrid(lon,lat)
     return np.stack([np.sin(lon)*np.cos(lat),np.cos(lon)*np.cos(lat),np.sin(lat)],-1)
 
+def lens_scale(cal, L=None):
+    """Calibration space (3840^2) -> stream pixels.  The intrinsics are stored for a 3840-px lens image, so
+    the scale is simply W/3840 (0.5 in 4K mode, 1 in 8K mode).  Earlier versions used digital_focal_length/fx
+    (0.5065 / 1.013), which is 1.3-1.6 % too large and misregisters the lenses by ~1.4 deg each at the seam (E29).
+    OSV_LEGACY_SCALE=1 restores the old value for A/B experiments."""
+    import os
+    if os.environ.get("OSV_LEGACY_SCALE") == "1" and L is not None:
+        return cal["dfl"] / L["fx"]
+    return cal["W"] / 3840.0
+
+
 def lens_maps(dirs,cal,L,feather_deg=(85,97)):
     R=qmat(L["q"]); d=dirs@R.T
     x,y,z=d[...,0],d[...,1],d[...,2]
     th=np.arctan2(np.hypot(x,y),z); ph=np.arctan2(y,x)
     k=L["k"]; t2=th*th
     r=th*(1+k[0]*t2+k[1]*t2**2+k[2]*t2**3+k[3]*t2**4+k[4]*t2**5)
-    s=cal["dfl"]/L["fx"]; Ws=cal["W"]
+    s=lens_scale(cal,L); Ws=cal["W"]
     u=Ws/2+(L["fx"]*r*np.cos(ph)+L["cx"]-1920)*s
     v=Ws/2+(L["fy"]*r*np.sin(ph)+L["cy"]-1920)*s
     a,b=np.radians(feather_deg)

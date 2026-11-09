@@ -95,7 +95,7 @@ def seam_track(proxy, cal, dur, lens_px, rate=2.0, bins=180):
 def rig(src, lens_px, proxy=None):
     import torch
     from osvcut import Lens, level_frames
-    from stitch import load_calib, qmat
+    from stitch import load_calib, qmat, lens_scale
     from seam import SmartStitch, build_mask
     from eval_seams import grab_pair
     cal = load_calib(src)
@@ -103,7 +103,7 @@ def rig(src, lens_px, proxy=None):
     p = lens_px / W
     lenses = []
     for L in cal["lenses"]:
-        s = cal["dfl"] / L["fx"]
+        s = lens_scale(cal, L)
         _, (cx, cy, rlim) = build_mask(L, cal)
         lenses.append(dict(R=qmat(L["q"]).round(7).tolist(), k=[float(v) for v in L["k"]],
                            f=[L["fx"] * s * p, L["fy"] * s * p], c=[cx * p, cy * p],
@@ -128,7 +128,7 @@ def rig(src, lens_px, proxy=None):
         M = Ms[min(np.searchsorted(ts, t), len(Ms) - 1)]
         qs.append([round(v, 5) for v in rot_to_quat(np.asarray(M))])
     seam = seam_track(proxy, cal, dur, lens_px) if proxy else None
-    return dict(version=2, lens_px=lens_px, width=2 * lens_px, height=lens_px, lenses=lenses, seam=seam,
+    return dict(version=3, lens_px=lens_px, width=2 * lens_px, height=lens_px, lenses=lenses, seam=seam,
                 gain_slave=np.exp(-lr / 2).round(4).tolist(), gain_master=np.exp(lr / 2).round(4).tolist(),
                 level_rate=15.0, level_q=qs, duration=dur, theta_cut_deg=98.0)
 
