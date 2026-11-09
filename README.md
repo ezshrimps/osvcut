@@ -59,6 +59,8 @@ Example spec:
 
 `proj`: `flat` | `equirect` · `seam`: `flow` (default) | `smart` | `legacy` · `stabilize`: `level` | `lock` | `none`
 
+Optional: `speed` (0.25–4; slow motion uses every source frame), `cq` (quality), `seam_async` (default true), `keys[].dist` (0 rectilinear … 1 little planet), `keys[].ease` (`linear`).
+
 ## Files
 
 | File | Purpose |

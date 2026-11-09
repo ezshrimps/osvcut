@@ -566,6 +566,7 @@ $('fov').oninput=e=>{state.hfov=+e.target.value;syncControls()};
 $('dist').oninput=e=>{state.dist=+e.target.value;syncControls()};
 $('aspect').onchange=e=>{state.aspect=+e.target.value;layout();writeSpec()};
 ['seamSel','cqSel','fpsSel','speedSel'].forEach(id=>$(id).onchange=()=>writeSpec());
+$('speedSel').addEventListener('change',()=>{vid.playbackRate=+$('speedSel').value;$('rate').value=String(Math.min(1,+$('speedSel').value))});
 $('grid').onchange=e=>state.grid=e.target.checked;
 $('follow').onchange=e=>state.follow=e.target.checked;
 $('addkf').onclick=addKey;
