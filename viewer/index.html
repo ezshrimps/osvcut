@@ -1184,7 +1184,7 @@ function renderSeq(){
   $('seqInfo').textContent=SEQ.length?`${SEQ.length} 段 · ${fmtDur(tot)} · ${SEQ[0].spec.size.join('×')} @ ${SEQ[0].spec.fps}fps`:'';
   $('seqList').innerHTML=SEQ.length?SEQ.map((s,i)=>`<div class="seqrow"><span class="n">${i+1}</span><span>${esc(s.title)}</span>
     <span class="d">${fmtDur(segDur(s))}${s.spec.speed?` · ${s.spec.speed}×`:''} · ${s.spec.keys.length} 帧</span>
-    <span class="ops"><button data-op="edit" data-i="${i}" title="在 360° 查看里打开">编辑</button><button data-op="up" data-i="${i}">↑</button><button data-op="down" data-i="${i}">↓</button><button data-op="del" data-i="${i}">✕</button></span></div>`).join('')
+    <span class="ops"><button data-op="edit" data-i="${i}" title="在 360° 查看里打开">编辑</button><button data-op="up" data-i="${i}" title="上移" aria-label="上移">↑</button><button data-op="down" data-i="${i}" title="下移" aria-label="下移">↓</button><button data-op="del" data-i="${i}" title="从剪辑台移除" aria-label="从剪辑台移除">✕</button></span></div>`).join('')
     :'<p class="empty">剪辑台是空的。在 360° 查看里设好入出点和关键帧（或 Shift+拖框跟随），点「＋ 剪辑台」。</p>';
   $('seqGo').disabled=!SEQ.length;
   $('seqList').querySelectorAll('button').forEach(b=>b.onclick=()=>{
@@ -1452,6 +1452,7 @@ async function init(){
   if(CLIPS.equirect.length) loadClip(CLIPS.equirect[0]);
   pollJobs(); renderSeq();
   if(location.hash==='#lib'||!CLIPS.equirect.length) setTab('lib');
+  if(!state.clip) $('loading').textContent='还没有打开素材 —— 到「素材库」点一段素材，就会在这里显示（拖动转视角，滚轮缩放）';
 }
 init();
 </script>
