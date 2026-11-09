@@ -153,6 +153,21 @@ def test_yuv420_to_rgb_grey_and_primaries():
     assert red[0] > 0.95 and red[1] < 0.05 and red[2] < 0.05
 
 
+# ---------------------------------------------------------------- nadir patch
+def test_nadir_patch_covers_cap_only():
+    import torch
+    from osvcut import view_dirs, nadir_patch
+    d = view_dirs("equirect", 64, 32)
+    torch.manual_seed(0)
+    img = torch.rand(3, 32, 64, device=d.device)
+    out = nadir_patch(img, d, 20.0)
+    el = torch.rad2deg(torch.asin((-d[..., 2]).clamp(-1, 1)))
+    above = el < 69                                     # outside cap + 1 deg soft edge: untouched
+    assert torch.allclose(out[:, above], img[:, above])
+    pole = el > 85                                      # near the pole: smooth fill, little variance
+    assert out[:, pole].std(1).max() < 0.1 and img[:, pole].std(1).min() > 0.2
+
+
 # ---------------------------------------------------------------- spherical metadata
 def test_spherical_injection_both_layouts():
     import shutil, subprocess, tempfile

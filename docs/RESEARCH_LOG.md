@@ -236,6 +236,13 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **R.** vs feathered: better on every metric (30/30 CD, p = 1.9e-9). vs DP cut: CD 17/30 better (−0.003, p = 0.047), CD-hard n.s. (p = 0.53), edge deviation slightly worse (n.s., p = 0.10), fidelity lower (by construction).
 **C.** At 8K (mostly indoor, static scenes in this corpus) the flow seam is on par with the DP cut; its advantage is concentrated in 4K handheld footage with near-field parallax. Reported as such in the paper.
 
+## E28 — Nadir patch
+
+**Q.** The hand, the stick root and the operator's shadow fill the nadir of every handheld clip; the stitch cannot remove them (they are real content in both lenses). Can a cheap fill hide them in 360 exports and little-planet shots?
+**M.** `osvcut.nadir_patch`: in the levelled frame, take the ring 1°–6° outside a cap of radius r around the nadir, average it into 36 azimuth bins (circularly smoothed), fill the cap with the per-azimuth colour fading to the ring mean towards the pole, and blend over a 2° soft edge. Spec key `nadir_patch: r`; studio option (10° / 15° / 20°), MCP `render_cut(nadir_patch=…)`.
+**R.** On the trail clip (r = 18°) the hand and stick vanish into a smooth ground-coloured disc; in the little-planet projection the centre reads as a plain patch of ground. Cost is one masked reduction per frame (negligible). Unit test: pixels outside the cap are unchanged, the pole is near-uniform.
+**C.** A cosmetic tool, not research: it hides rather than reconstructs. Inpainting the true ground (from earlier frames as the camera moves) is the natural next step and would need the per-frame ground-plane motion that E-ground showed to be unreliable.
+
 ---
 
 ## Open questions / next experiments
