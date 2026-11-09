@@ -260,6 +260,11 @@ body.bt .btview .btpair img{cursor:default}
           <span class="minicap" style="margin:0;align-self:center">原声</span><input type="range" id="origVol" min="0" max="1" step="0.05" value="0.5" style="max-width:110px;accent-color:var(--accent)">
           <button class="btn" id="musicClear" title="不用背景音乐">✕</button>
         </div>
+        <div class="exportrow">
+          <span class="minicap" style="margin:0;align-self:center">转场</span>
+          <select id="seqTrans"><option value="">直接切</option><option value="fade" selected>淡入淡出</option><option value="fadeblack">黑场过渡</option><option value="wipeleft">擦除</option><option value="circleopen">圆形展开</option></select>
+          <select id="seqTransDur"><option value="0.3">0.3 秒</option><option value="0.5" selected>0.5 秒</option><option value="1">1 秒</option></select>
+        </div>
         <div class="exportrow"><input id="seqTitle" placeholder="整片标题（可选）"><button class="btn primary" id="seqGo">导出整片</button><button class="btn" id="seqClear">清空</button></div>
       </div>
       <div class="jobs" id="jobs"></div>
@@ -1163,7 +1168,7 @@ $('seqGo').onclick=async()=>{
   if(!SEQ.length) return;
   const f=SEQ[0].spec;
   const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({kind:'sequence',specs:SEQ.map(s=>s.spec),title:$('seqTitle').value||undefined,size:f.size,fps:f.fps,music:MUSIC||undefined})});
+    body:JSON.stringify({kind:'sequence',specs:SEQ.map(s=>s.spec),title:$('seqTitle').value||undefined,size:f.size,fps:f.fps,music:MUSIC||undefined,transition:$('seqTrans').value?{type:$('seqTrans').value,duration:+$('seqTransDur').value}:undefined})});
   const j=await r.json(); if(j.error){toast('导出失败：'+j.error);return}
   toast('整片已加入导出队列'); pollJobs();
 };

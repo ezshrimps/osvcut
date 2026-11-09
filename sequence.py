@@ -2,10 +2,43 @@
 
     python sequence.py job.json
 
-job.json: {"specs": [spec, ...], "dst": "out.mp4", "size": [w, h], "fps": n}
+job.json: {"specs": [spec, ...], "dst": "out.mp4", "size": [w, h], "fps": n,
+           "transition": {"type": "fade" | "fadeblack" | "wipeleft" | "circleopen", "duration": 0.5},   (optional)
+           "music": {...}}                                                                              (optional)
 Every part is rendered with the sequence's size / fps, given a silent stereo track if its source has
-no audio, and the parts are joined losslessly with the concat demuxer.
+no audio, and the parts are joined losslessly with the concat demuxer, or, with a transition, cross-faded
+(video xfade + audio acrossfade, re-encoded with NVENC).
 """
+TRANSITIONS = ("fade", "fadeblack", "wipeleft", "circleopen")
+
+
+def duration(path):
+    return float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                                capture_output=True, text=True).stdout or 0)
+
+
+def crossfade(parts, out, fps, kind="fade", d=0.5):
+    """Join parts with an xfade / acrossfade of d seconds between consecutive parts."""
+    durs = [duration(p) for p in parts]
+    d = max(0.05, min(float(d), 0.45 * min(durs)))         # a transition never eats a whole part
+    inputs = sum([["-i", p] for p in parts], [])
+    fc, off = [], 0.0
+    for i in range(len(parts)):
+        fc.append(f"[{i}:v]settb=AVTB,fps={fps},format=yuv420p[v{i}]")
+    va, aa = "[v0]", "[0:a]"
+    for i in range(1, len(parts)):
+        off += durs[i - 1] - d
+        fc.append(f"{va}[v{i}]xfade=transition={kind}:duration={d:.3f}:offset={off:.3f}[x{i}]")
+        fc.append(f"{aa}[{i}:a]acrossfade=d={d:.3f}[y{i}]")
+        va, aa = f"[x{i}]", f"[y{i}]"
+    cmd = ["ffmpeg", "-v", "error", "-y"] + inputs + ["-filter_complex", ";".join(fc), "-map", va, "-map", aa,
+                                                      "-c:v", "h264_nvenc", "-preset", "p5", "-cq", "19", "-c:a", "aac",
+                                                      "-b:a", "192k", "-movflags", "+faststart", out]
+    if subprocess.run(cmd).returncode != 0:                  # no NVENC: CPU encoder
+        cmd[cmd.index("h264_nvenc")] = "libx264"
+        i = cmd.index("-preset"); cmd[i + 1] = "medium"
+        i = cmd.index("-cq"); cmd[i:i + 2] = ["-crf", "19"]
+        subprocess.run(cmd, check=True)
 import json
 import os
 import re
@@ -59,12 +92,15 @@ def main(job_path):
             fh.write("file '" + p.replace("\\", "/").replace("'", "'\\''") + "'\n")
     music = job.get("music")
     joined = dst if not music else os.path.join(tmp, "joined.mp4")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy",
-                    "-movflags", "+faststart", joined], check=True)
+    tr = job.get("transition") or {}
+    if tr.get("type") in TRANSITIONS and len(parts) > 1:
+        crossfade(parts, joined, fps, tr["type"], tr.get("duration", 0.5))
+    else:
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy",
+                        "-movflags", "+faststart", joined], check=True)
     if music:
         # background music: loop/trim to the film, mix under the original sound, fade out at the end
-        dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", joined],
-                                   capture_output=True, text=True).stdout or 0)
+        dur = duration(joined)
         mv, ov = float(music.get("volume", 0.6)), float(music.get("original", 0.5))
         fade = min(3.0, dur / 4)
         fc = (f"[1:a]aloop=loop=-1:size=2e9,atrim=0:{dur:.3f},volume={mv},afade=t=out:st={max(0, dur - fade):.3f}:d={fade:.3f}[m];"

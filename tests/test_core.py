@@ -203,6 +203,26 @@ def test_spherical_injection_both_layouts():
         assert n.strip().rstrip(",") == "10", n
 
 
+# ---------------------------------------------------------------- sequence transitions
+def test_crossfade_length():
+    import shutil, subprocess, tempfile
+    if not shutil.which("ffmpeg"):
+        print("     (skipped: ffmpeg not found)")
+        return
+    from sequence import crossfade, duration
+    d = tempfile.mkdtemp()
+    parts = []
+    for i, col in enumerate(("red", "blue", "green")):
+        p = os.path.join(d, f"p{i}.mp4")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"color={col}:size=160x90:rate=25:duration=1",
+                        "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-shortest", p], check=True)
+        parts.append(p)
+    out = os.path.join(d, "x.mp4")
+    crossfade(parts, out, 25, "fade", 0.3)
+    assert abs(duration(out) - (3 - 2 * 0.3)) < 0.1, duration(out)
+
+
 # ---------------------------------------------------------------- search normalisation
 def test_traditional_simplified_folding():
     from textnorm import norm

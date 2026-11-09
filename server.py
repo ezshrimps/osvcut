@@ -390,7 +390,10 @@ class Handler(RangeHandler):
                 music = b.get("music") or None
                 if music and not (os.path.abspath(music["path"]).startswith(os.path.abspath(MUSIC)) and os.path.exists(music["path"])):
                     return self._json({"error": "music file not found"}, 400)
-                json.dump(dict(specs=specs, dst=dst, size=b.get("size"), fps=b.get("fps"), music=music),
+                tr = b.get("transition") or None
+                if tr and tr.get("type") not in ("fade", "fadeblack", "wipeleft", "circleopen"):
+                    tr = None
+                json.dump(dict(specs=specs, dst=dst, size=b.get("size"), fps=b.get("fps"), music=music, transition=tr),
                           open(jid_spec, "w", encoding="utf8"), ensure_ascii=False, indent=1)
                 json.dump(dict(title=title, size=b.get("size") or specs[0].get("size"), sequence=specs),
                           open(dst[:-4] + ".json", "w", encoding="utf8"), ensure_ascii=False, indent=1)
