@@ -57,9 +57,13 @@ def main():
         P = np.frombuffer(base64.b64decode(sm["path"]), np.uint8).reshape(n, bins).astype(np.float32)
         G = np.frombuffer(base64.b64decode(sm["gains"]), np.uint8).reshape(n, gb + 1, 3).astype(np.float32)
         Fl = np.frombuffer(base64.b64decode(sm["flow"]), np.uint8).reshape(n, bins, 2).astype(np.float32)
+        dur = r.get("duration", n / sm["rate"])
         for k in range(nf):
-            i = int((k + 0.5) / nf * n)
-            t = i / sm["rate"] + float(os.environ.get("TSHIFT", "0"))
+            # evaluation times on a fixed grid (independent of the track rate), tracks interpolated linearly
+            # between the two neighbouring samples exactly like the shader's texture lookup
+            t = (k + 0.5) / nf * min(dur - 0.2, (n - 1) / sm["rate"]) + float(os.environ.get("TSHIFT", "0"))
+            x = t * sm["rate"]; i0 = int(np.clip(np.floor(x), 0, n - 1)); i1 = min(n - 1, i0 + 1); fr = float(x - np.floor(x))
+            lerp = lambda X: X[i0] * (1 - fr) + X[i1] * fr
             imgs = frame_at(rj[:-5] + ".mp4", t, lp)
             if imgs is None:
                 continue
@@ -71,10 +75,11 @@ def main():
             hard = hard_columns(A, B, both, betas)
             # tracks -> engine state (fW = 1800 columns at 0.2 deg)
             up = lambda v: np.interp(np.arange(eng.fW) * eng.fres, np.arange(bins) * 360 / bins + 1, v, period=360)
-            path = up((P[i] / 255 - 0.5) * 9.0)
-            lr = (G[i] / 255 - 0.5) * 2.0
+            path = up((lerp(P) / 255 - 0.5) * 9.0)
+            lr = (lerp(G) / 255 - 0.5) * 2.0
             eng.logr = lr[:gb].T.copy()                 # local bins; the global mean is their mean in the engine
-            fa, fb = [up((Fl[i, :, j] / 255 - 0.5) * 2 * sm.get("flow_range", 4.0)) for j in (0, 1)]
+            FlI = lerp(Fl)
+            fa, fb = [up((FlI[:, j] / 255 - 0.5) * 2 * sm.get("flow_range", 4.0)) for j in (0, 1)]
             eng.ov_c = torch.tensor(path, dtype=torch.float32, device=dev)
             res = {}
             if os.environ.get("ORACLE"):        # tracks computed on this very frame (upper bound for the track rate)

@@ -321,6 +321,12 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 
 **Not done, needs the user:** person / face detection for subject framing. OpenCV 5 in this environment ships neither Haar cascades nor the HOG people detector, and `FaceDetectorYN` needs an ONNX model download.
 
+## E38 — Track rate for the live preview
+
+**M.** `tools_live_eval.py` now evaluates on a fixed time grid and interpolates the tracks linearly between neighbouring samples, as the shader's texture lookup does. 2 Hz vs 5 Hz rigs (`OSV_TRACK_HZ`), 5 clips, 12 frames each.
+**R.** Matched frames (n = 36): live-morph CD 0.0415 (2 Hz) vs 0.0393 (5 Hz), 5 Hz better 24/36, p = 0.013; cut-only n.s.; edge-hard 0.157 vs 0.155 (p = 0.05). Cost: rig 2.5 → 6.3 MB and 119 → 198 s for a 19-min clip.
+**C.** Default 5 Hz for clips up to 10 min, 2 Hz beyond (rig size).
+
 ---
 
 ## Open questions / next experiments

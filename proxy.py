@@ -8,6 +8,7 @@ per-lens Kannala-Brandt model and rotation in proxy pixels, the usable radius pe
 global exposure balance, and the levelling rotation as quaternions at 15 Hz.
 """
 import json
+import os
 import math
 import subprocess
 import sys
@@ -136,7 +137,9 @@ def rig(src, lens_px, proxy=None):
     for t in grid:
         M = Ms[min(np.searchsorted(ts, t), len(Ms) - 1)]
         qs.append([round(v, 5) for v in rot_to_quat(np.asarray(M))])
-    seam = seam_track(proxy, cal, dur, lens_px) if proxy else None
+    # 5 Hz tracks are measurably better than 2 Hz in the live preview (E38); long clips stay at 2 Hz to keep the rig small
+    hz = float(os.environ.get("OSV_TRACK_HZ", 5.0 if dur <= 600 else 2.0))
+    seam = seam_track(proxy, cal, dur, lens_px, rate=hz) if proxy else None
     return dict(version=4, lens_px=lens_px, width=2 * lens_px, height=lens_px, lenses=lenses, seam=seam,
                 gain_slave=np.exp(-lr / 2).round(4).tolist(), gain_master=np.exp(lr / 2).round(4).tolist(),
                 level_rate=15.0, level_q=qs, duration=dur, theta_cut_deg=98.0)
