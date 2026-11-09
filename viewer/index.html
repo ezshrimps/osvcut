@@ -251,6 +251,13 @@ body.bt .btview .btpair img{cursor:default}
       <div class="seq" id="seq">
         <h3>剪辑台 <small id="seqInfo"></small></h3>
         <div id="seqList"></div>
+        <div class="exportrow music">
+          <label class="btn" style="cursor:pointer">🎵 背景音乐<input type="file" id="musicFile" accept="audio/*" style="display:none"></label>
+          <span id="musicName" class="minicap" style="margin:0;align-self:center">未选择</span>
+          <span class="minicap" style="margin:0 0 0 auto;align-self:center">音乐</span><input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.6" style="max-width:110px;accent-color:var(--accent)">
+          <span class="minicap" style="margin:0;align-self:center">原声</span><input type="range" id="origVol" min="0" max="1" step="0.05" value="0.5" style="max-width:110px;accent-color:var(--accent)">
+          <button class="btn" id="musicClear" title="不用背景音乐">✕</button>
+        </div>
         <div class="exportrow"><input id="seqTitle" placeholder="整片标题（可选）"><button class="btn primary" id="seqGo">导出整片</button><button class="btn" id="seqClear">清空</button></div>
       </div>
       <div class="jobs" id="jobs"></div>
@@ -1018,9 +1025,23 @@ async function applyTrack(j){
 }
 
 /* ---------- sequence (剪辑台): several cuts joined into one film ---------- */
+let MUSIC=null; try{MUSIC=JSON.parse(localStorage.getItem('osvcut.music')||'null')}catch{MUSIC=null}
+function saveMusic(){try{localStorage.setItem('osvcut.music',JSON.stringify(MUSIC))}catch{}; $('musicName').textContent=MUSIC?MUSIC.name:'未选择'}
+$('musicFile').onchange=async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  $('musicName').textContent='上传中…';
+  const r=await (await fetch('/api/upload/music?name='+encodeURIComponent(f.name),{method:'POST',body:f})).json();
+  if(r.error){toast('上传失败：'+r.error);MUSIC=null}else MUSIC={path:r.path,name:r.name,volume:+$('musicVol').value,original:+$('origVol').value};
+  saveMusic(); e.target.value='';
+};
+$('musicVol').oninput=()=>{if(MUSIC){MUSIC.volume=+$('musicVol').value;saveMusic()}};
+$('origVol').oninput=()=>{if(MUSIC){MUSIC.original=+$('origVol').value;saveMusic()}};
+$('musicClear').onclick=()=>{MUSIC=null;saveMusic()};
+
 let SEQ=[]; try{SEQ=JSON.parse(localStorage.getItem('osvcut.seq')||'[]')}catch{SEQ=[]}
 function saveSeq(){try{localStorage.setItem('osvcut.seq',JSON.stringify(SEQ))}catch{} renderSeq()}
 function renderSeq(){
+  if(MUSIC){$('musicVol').value=MUSIC.volume;$('origVol').value=MUSIC.original} $('musicName').textContent=MUSIC?MUSIC.name:'未选择';
   const segDur=s=>(s.spec.out-s.spec.in)/(s.spec.speed||1);
   const tot=SEQ.reduce((a,s)=>a+segDur(s),0);
   $('seqInfo').textContent=SEQ.length?`${SEQ.length} 段 · ${fmtDur(tot)} · ${SEQ[0].spec.size.join('×')} @ ${SEQ[0].spec.fps}fps`:'';
@@ -1064,7 +1085,7 @@ $('seqGo').onclick=async()=>{
   if(!SEQ.length) return;
   const f=SEQ[0].spec;
   const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({kind:'sequence',specs:SEQ.map(s=>s.spec),title:$('seqTitle').value||undefined,size:f.size,fps:f.fps})});
+    body:JSON.stringify({kind:'sequence',specs:SEQ.map(s=>s.spec),title:$('seqTitle').value||undefined,size:f.size,fps:f.fps,music:MUSIC||undefined})});
   const j=await r.json(); if(j.error){toast('导出失败：'+j.error);return}
   toast('整片已加入导出队列'); pollJobs();
 };

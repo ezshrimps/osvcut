@@ -27,9 +27,10 @@ import look                             # noqa: E402
 PREVIEWS = os.path.join(HERE, "cache", "previews")
 TRACKS = os.path.join(HERE, "cache", "tracks")
 PROXIES = os.path.join(HERE, "cache", "proxies")
+MUSIC = os.path.join(HERE, "cache", "music")
 EXPORTS = os.path.join(HERE, "exports")
 SPECS = os.path.join(HERE, "cache", "jobspecs")
-for d in (PREVIEWS, EXPORTS, SPECS, TRACKS, PROXIES):
+for d in (PREVIEWS, EXPORTS, SPECS, TRACKS, PROXIES, MUSIC):
     os.makedirs(d, exist_ok=True)
 
 PREVIEW_PRESETS = {
@@ -324,7 +325,10 @@ class Handler(RangeHandler):
                 safe = re.sub(r'[\\/:*?"<>|]+', "_", title)[:60]
                 dst = os.path.join(EXPORTS, f"{time.strftime('%Y%m%d-%H%M%S')}_{safe}.mp4")
                 jid_spec = os.path.join(SPECS, "seq_" + uuid.uuid4().hex[:8] + ".json")
-                json.dump(dict(specs=specs, dst=dst, size=b.get("size"), fps=b.get("fps")),
+                music = b.get("music") or None
+                if music and not (os.path.abspath(music["path"]).startswith(os.path.abspath(MUSIC)) and os.path.exists(music["path"])):
+                    return self._json({"error": "music file not found"}, 400)
+                json.dump(dict(specs=specs, dst=dst, size=b.get("size"), fps=b.get("fps"), music=music),
                           open(jid_spec, "w", encoding="utf8"), ensure_ascii=False, indent=1)
                 json.dump(dict(title=title, size=b.get("size") or specs[0].get("size"), sequence=specs),
                           open(dst[:-4] + ".json", "w", encoding="utf8"), ensure_ascii=False, indent=1)
@@ -375,6 +379,25 @@ class Handler(RangeHandler):
             if proc:
                 proc.kill()
             return self._json({"ok": True})
+        if p == "/api/upload/music":
+            # raw body = the audio file; ?name= original file name
+            from urllib.parse import parse_qs
+            q = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+            name = re.sub(r'[\\/:*?"<>|]+', "_", q.get("name", "music"))[-80:]
+            if not re.search(r"\.(mp3|m4a|aac|wav|flac|ogg)$", name, re.I):
+                return self._json({"error": "unsupported audio type"}, 400)
+            n = int(self.headers.get("Content-Length") or 0)
+            if n <= 0 or n > 300 * 1024 * 1024:
+                return self._json({"error": "file too large or empty"}, 400)
+            dst = os.path.join(MUSIC, f"{uuid.uuid4().hex[:8]}_{name}")
+            with open(dst, "wb") as fh:
+                left = n
+                while left:
+                    chunk = self.rfile.read(min(1 << 20, left))
+                    if not chunk:
+                        break
+                    fh.write(chunk); left -= len(chunk)
+            return self._json({"ok": True, "path": dst, "name": name})
         if p == "/api/storage/clear":
             b = self._body()
             what = b.get("what")

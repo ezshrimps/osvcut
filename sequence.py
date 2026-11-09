@@ -57,8 +57,21 @@ def main(job_path):
     with open(lst, "w", encoding="utf8") as fh:
         for p in parts:
             fh.write("file '" + p.replace("\\", "/").replace("'", "'\\''") + "'\n")
+    music = job.get("music")
+    joined = dst if not music else os.path.join(tmp, "joined.mp4")
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy",
-                    "-movflags", "+faststart", dst], check=True)
+                    "-movflags", "+faststart", joined], check=True)
+    if music:
+        # background music: loop/trim to the film, mix under the original sound, fade out at the end
+        dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", joined],
+                                   capture_output=True, text=True).stdout or 0)
+        mv, ov = float(music.get("volume", 0.6)), float(music.get("original", 0.5))
+        fade = min(3.0, dur / 4)
+        fc = (f"[1:a]aloop=loop=-1:size=2e9,atrim=0:{dur:.3f},volume={mv},afade=t=out:st={max(0, dur - fade):.3f}:d={fade:.3f}[m];"
+              f"[0:a]volume={ov}[o];[o][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", joined, "-i", music["path"], "-filter_complex", fc,
+                        "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                        "-movflags", "+faststart", dst], check=True)
     for p in os.listdir(tmp):
         os.remove(os.path.join(tmp, p))
     os.rmdir(tmp)
