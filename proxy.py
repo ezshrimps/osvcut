@@ -147,10 +147,18 @@ def rig(src, lens_px, proxy=None):
 
 if __name__ == "__main__":
     src, out, out_rig = sys.argv[1:4]
-    lens_px = int(sys.argv[4]) if len(sys.argv) > 4 else 1536
+    lens_px = int(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4].isdigit() else 1536
+    final = sys.argv[5] if len(sys.argv) > 5 else None      # publish the proxy under this name as soon as it exists
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src],
                                capture_output=True, text=True).stdout or 0)
     transcode(src, out, lens_px, dur)
+    if final:
+        # stage 1: the clip is viewable live right away (fixed seam); stage 2 adds the seam / flow track
+        os.replace(out, final)
+        out = final
+        json.dump(rig(src, lens_px, proxy=None), open(out_rig, "w"), separators=(",", ":"))
+        print("progress 900/1000", flush=True)
     r = rig(src, lens_px, proxy=out)
-    json.dump(r, open(out_rig, "w"), separators=(",", ":"))
+    json.dump(r, open(out_rig + ".tmp", "w"), separators=(",", ":"))
+    os.replace(out_rig + ".tmp", out_rig)
     print("progress 1000/1000", flush=True)

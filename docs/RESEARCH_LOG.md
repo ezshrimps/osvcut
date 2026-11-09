@@ -432,6 +432,12 @@ E41 re-run: ratio 0.74 → 0.52 (0.46 top bin), flow seam ≤ 0.041 in every bin
 **R.** Without attenuation: CD 0.0264 vs 0.0272 (40/40), CD-hard 0.0367 vs 0.0388 (35/40), but edge 0.032 vs 0.030 (10/40 better, p = 4e-4), edge-hard 0.044 vs 0.041 (p = 0.04), fidelity −0.002.
 **C.** The usual morph trade (agreement for edge energy), now at the narrow-overlap columns; attenuation kept because edges are what viewers see.
 
+## E56 — Staged live proxies (time to first view)
+
+**M.** `proxy.py` publishes the transcoded proxy and a rig without the seam track first, then computes the seam / flow track and replaces the rig; the studio picks up the stage-1 rig while the job runs and swaps in the full rig when it finishes.
+**R.** 67-s clip: viewable after 20 s (was 66 s, the whole job); 44-s clip in the studio: live at 15 s with the fixed seam, full flow seam at 44 s.
+**C.** Adopted.
+
 ---
 
 ## Open questions / next experiments

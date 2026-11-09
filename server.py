@@ -368,8 +368,8 @@ class Handler(RangeHandler):
                 job = new_job("proxy", f"{c['name']} · 实时预览代理", None, c["id"],
                               cmd=[sys.executable, "-u", "-c",
                                    "import sys,os,subprocess;"
-                                   "r=subprocess.run([sys.executable,'-u','proxy.py',sys.argv[1],sys.argv[2],sys.argv[3]]).returncode;"
-                                   "os.replace(sys.argv[2],sys.argv[4]) if r==0 else None;sys.exit(r)",
+                                   "r=subprocess.run([sys.executable,'-u','proxy.py',sys.argv[1],sys.argv[2],sys.argv[3],'1536',sys.argv[4]]).returncode;"
+                                   "os.replace(sys.argv[2],sys.argv[4]) if r==0 and os.path.exists(sys.argv[2]) else None;sys.exit(r)",
                                    c["path"], tmp, rj, px], output=px)
                 # jump the queue: proxies are short and unblock the viewer
                 with JOBQ.mutex:

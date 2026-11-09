@@ -1040,6 +1040,13 @@ async function pollJobs(){
       else if(j.kind==='track') applyTrack(j);
       else loadExports();
     }}
+  // staged proxies: the live view can start while the seam track is still being computed
+  const pj=state.clip&&JOBS.find(j=>j.kind==='proxy'&&j.clip===state.clip.id&&j.status==='running');
+  if(pj&&!RIG&&!state.clip.file){ try{ const h=await fetch(`/cache/proxies/${state.clip.id}.json`,{method:'HEAD',cache:'no-store'});
+      if(h.ok){ await loadLibrary(); const c=LIB.clips.find(x=>x.id===state.clip.id); if(c&&c.rig){ toast('实时预览已就绪（接缝分析还在后台进行）'); loadClip(libToClip(c)); } } }catch{} }
+  for(const j of JOBS){ const p=prev.find(x=>x.id===j.id);
+    if(j.kind==='proxy'&&p&&p.status!=='done'&&j.status==='done'&&RIG&&!RIG.seam&&state.clip?.id===j.clip){
+      try{ const r=await (await fetch(`/cache/proxies/${j.clip}.json`,{cache:'no-store'})).json(); setRig(r); toast('接缝分析完成，实时预览已切换到完整拼缝'); }catch{} } }
   if(state.clip?.lib&&!state.clip.file&&!RIG) showGen(state.clip);
   if(document.body.classList.contains('lib')&&active.length) renderLibrary();
   pollT=setTimeout(pollJobs,active.length?1500:6000);
