@@ -898,7 +898,7 @@ function renderLibrary(){
   const html=[];
   for(const [k,cs] of groups){
     const need=cs.filter(c=>!c.proxy&&!Object.keys(c.previews||{}).length&&c.duration>0&&!proxyJobFor(c.id)).length;
-    html.push(`<div class="group"><h3>${esc(k)} <small>${cs.length} 段 · ${fmtDur(cs.reduce((a,c)=>a+(c.duration||0),0))}</small>${need?`<button class="btn grpbtn" data-grp="${esc(k)}">全部生成实时预览（${need} 段）</button>`:''}${cs.some(c=>c.speech&&c.speech.n||c.duration>8)?`<button class="btn autobtn" data-grp="${esc(k)}" title="从这一组素材里自动挑出说话和稳定的风景片段，自动取景、加转场和字幕，导出一部短片">✨ 一键成片</button>`:''}</h3><div class="grid">`);
+    html.push(`<div class="group"><h3>${esc(k)} <small>${cs.length} 段 · ${fmtDur(cs.reduce((a,c)=>a+(c.duration||0),0))}</small>${need?`<button class="btn grpbtn" data-grp="${esc(k)}">全部生成实时预览（${need} 段）</button>`:''}${cs.some(c=>c.speech&&c.speech.n||c.duration>8)?`<button class="btn autobtn" data-grp="${esc(k)}" title="从这一组素材里自动挑出说话和稳定的风景片段，自动取景、加转场和字幕，导出一部短片">✨ 一键成片</button>`:''}<button class="btn all360" data-grp="${esc(k)}" title="把这一组每段素材导出为校平后的 360° 全景视频（3840×1920，光流拼缝，带球面元数据，可直接上传 YouTube / VR 播放）">🌐 全部导出 360°</button></h3><div class="grid">`);
     for(const c of cs){
       const j=jobFor(c.id), has=Object.keys(c.previews||{}).length;
       html.push(`<button class="card" data-id="${c.id}" title="${c.speech&&c.speech.n?esc('💬 '+c.speech.text):''}"><div class="th" data-src="${c.thumb}"><div class="ph">${c.duration>0?'生成缩略图…':'无法读取'}</div><i></i>
@@ -921,6 +921,16 @@ function renderLibrary(){
       body:JSON.stringify({kind:'autoedit',clip_ids:cs.map(c=>c.id),seconds:secs,aspect,transition:'fade',captions:'burn',music:MUSIC||undefined,title:`${b.dataset.grp} · 一键成片`})})).json();
     if(r.error){toast('一键成片失败：'+r.error);return}
     toast('已开始一键成片，进度见「成片 & 任务」'); pollJobs();});
+  $('groups').querySelectorAll('.all360').forEach(b=>b.onclick=async ev=>{ev.stopPropagation();
+    const cs=(groups.get(b.dataset.grp)||[]).filter(c=>c.lenses===2&&c.duration>0);
+    const tot=cs.reduce((a,c)=>a+c.duration,0);
+    if(!cs.length||!confirm(`导出 ${cs.length} 段 360° 全景视频（共 ${fmtDur(tot)}）？
+在 GPU 上大约需要素材时长的 1.5–2 倍时间，任务会排队依次完成。`)) return;
+    for(const c of cs){
+      const spec={src:c.src,in:0,out:r2(c.duration),proj:'equirect',size:[3840,1920],spherical:true,fps:Math.min(30,Math.round(c.fps||30)),seam:'flow',seam_opts:{conf:'photo'},cq:20};
+      await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'export',spec,title:c.name.replace(/\.OSV$/i,'')+' · 360'})});
+    }
+    toast(`已加入 ${cs.length} 个 360° 导出任务`); pollJobs();});
   $('groups').querySelectorAll('.card').forEach(b=>b.onclick=()=>{const c=LIB.clips.find(x=>x.id===b.dataset.id);setTab('360');loadClip(libToClip(c))});
 }
 let speechT=null;
