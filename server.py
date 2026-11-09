@@ -21,6 +21,7 @@ os.chdir(HERE)
 from serve import RangeHandler          # noqa: E402
 import library as libmod                # noqa: E402
 import analysis                         # noqa: E402
+import blindtest                        # noqa: E402
 
 PREVIEWS = os.path.join(HERE, "cache", "previews")
 TRACKS = os.path.join(HERE, "cache", "tracks")
@@ -206,6 +207,8 @@ class Handler(RangeHandler):
                 j = new_job("transcript", f"{c['name']} · 语音转写", None, c["id"],
                             cmd=[sys.executable, "-u", "analysis.py", "transcript", c["path"], out], output=out)
             return self._json(dict(status=j["status"], job=j["id"], progress=j["progress"]))
+        if p == "/api/blindtest/stats":
+            return self._json(blindtest.stats())
         if p == "/api/jobs":
             return self._json([{k: v for k, v in j.items() if not k.startswith("_")}
                                for j in sorted(JOBS.values(), key=lambda j: -j["created"])])
@@ -272,6 +275,16 @@ class Handler(RangeHandler):
                 job = new_job("sequence", title, None, None, cmd=[sys.executable, "-u", "sequence.py", jid_spec], output=dst)
                 return self._json({k: v for k, v in job.items() if not k.startswith("_")})
             return self._json({"error": "unknown kind"}, 400)
+        if p == "/api/blindtest/next":
+            try:
+                with libmod._thumb_lock:          # share the GPU politely with thumbnail generation
+                    pr = blindtest.make_pair(LIB)
+            except Exception:
+                return self._json({"error": traceback.format_exc()[-600:]}, 500)
+            return self._json(pr or {"error": "no pair"}, 200 if pr else 500)
+        if p == "/api/blindtest/vote":
+            b = self._body()
+            return self._json({"ok": blindtest.vote(b.get("pid", ""), b.get("choice", ""))})
         if p == "/api/track":
             b = self._body()
             src = b.get("src", "")

@@ -143,6 +143,17 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **R.** Y: 38.4 → 34.1 (raw flow) gray levels; anti-aliased strips 36.0 → 32.0. H: 33.9 → 28.9; anti-aliased 29.7 → 25.5. Processed (smoothed, confidence-filled, clamped) flow keeps about half the gain.
 **C.** Most of the remaining lens-to-lens difference on texture is not geometric (edge-of-field blur, chromatic aberration, sensor noise, aliasing); this is why the seam should run where the two lenses *agree* rather than through the overlap centre (motivates E11's DP placement).
 
+## E13 — Temporal stability of the default (flow + DP, ±1.5°)
+
+**M.** Same protocol as E7 on Y (300 frames).
+**R.** single-lens reference 1.510 · smart cut 1.507 · flow centred 1.395 · **flow + DP ±1.5° 1.361**.
+**C.** Moving the ramp onto a per-frame DP path (temporal term λ_t = 0.6, EMA 0.5) adds no flicker relative to the no-seam reference.
+
+## E14 — Perceptual pairwise study (protocol; data collection open)
+
+**M.** Studio tab 「拼缝盲测」 (`blindtest.py`): random clip, random time, azimuth on the seam ring drawn 80 % from parallax-heavy columns (E11 definition); a 720×540, 55° rectilinear close-up centred on the seam, upright (body Z up), rendered by two of {legacy, smart, flow}; left/right randomised; the rater answers left / same / right (keys ← ↓ →). Method names are hidden until the stats view. Votes are appended to `cache/blindtest/votes.jsonl` with clip, time, azimuth and the hidden methods; win rates and Bradley–Terry scores (ties = ½) are computed by `blindtest.stats()`.
+**Status.** Waiting for human raters (the author of the methods does not vote).
+
 ---
 
 ## Open questions / next experiments
