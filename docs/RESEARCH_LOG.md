@@ -370,6 +370,12 @@ Re-run with the ±0.75° default (E42): ratio 0.92 / 0.83 / 0.80 / 0.72 / 0.60 /
 Re-runs with the final settings: 8K CD 30/30 vs the cut, hard 29/30 (p = 8e-8), step 28/30, edge n.s. (p = 0.26); E41 ratio 0.76 → 0.57 (0.42 top bin); live morph 0.039 vs cut 0.046 (49/60).
 **C.** Default `room_min = 0`. A modest gain; the 40-frame subset overstated it (edge-hard parity with the cut there, not on 100 frames).
 
+## E46 — What is the remaining hard-subset edge gap? (negative)
+
+**M.** (1) Signed log(E_out/E_ref) on hard seam pixels, 40 frames. (2) Lens resampling bilinear vs bicubic for every engine and the reference (`OSV_INTERP`), 40 frames.
+**R.** (1) Cut +0.004 (60 % > 0), flow −0.003 (40 % > 0): no systematic blur or extra edge, just a wider spread. (2) Bicubic: edge-hard flow 0.0427 / cut 0.0420 (bilinear 0.0433 / 0.0423), CD up for both (0.0326 / 0.0497). On this subset the two are already level on hard edges; the 100-frame gap (0.058 vs 0.043) comes from a minority of frames.
+**C.** Not resampling, not a systematic blur. Bilinear kept. The residual edge cost is frame-specific morphing of strong near-field parallax.
+
 ---
 
 ## Open questions / next experiments

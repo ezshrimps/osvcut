@@ -19,6 +19,8 @@ import torch.nn.functional as F
 from stitch import lens_scale
 
 GAMMA = 2.2
+import os as _os
+INTERP = _os.environ.get("OSV_INTERP", "bilinear")   # lens resampling (E46)
 TH_CUT = 98.0  # hard cut (deg): beyond this the lens polynomial is not trusted
 
 
@@ -208,7 +210,7 @@ class SmartStitch:
         u = cx + rc * torch.cos(ph)
         v = cy + rc * torch.sin(ph) * (L.fy / L.fx)
         g = torch.stack([u / L.W * 2 - 1, v / L.W * 2 - 1], -1)[None]
-        col = F.grid_sample(img, g, align_corners=False, padding_mode="border")[0]
+        col = F.grid_sample(img, g, mode=INTERP, align_corners=False, padding_mode="border")[0]
         gm = torch.stack([(cx + rpx * torch.cos(ph)) / L.W * 2 - 1, (cy + rpx * torch.sin(ph)) / L.W * 2 - 1], -1)[None]
         m = F.grid_sample(self.masks[i], gm, align_corners=False, padding_mode="zeros")[0, 0]
         m = m * (th < math.radians(TH_CUT))
