@@ -283,6 +283,24 @@ def test_title_card_burns_and_keeps_length():
     assert not os.path.exists(v[:-4] + "_title.ass")
 
 
+# ---------------------------------------------------------------- beat grid
+def test_beat_grid_on_a_metronome():
+    import shutil, subprocess, tempfile
+    if not shutil.which("ffmpeg"):
+        print("     (skipped: ffmpeg not found)")
+        return
+    from beats import beat_grid
+    d = tempfile.mkdtemp()
+    click, track = os.path.join(d, "c.wav"), os.path.join(d, "m.wav")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=1000:duration=0.05",
+                    "-af", "apad=pad_dur=0.4", click], check=True)                      # 0.45 s per click: 133.3 BPM
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-stream_loop", "40", "-i", click, "-t", "15",
+                    "-af", "adelay=200|200", track], check=True)
+    g = beat_grid(track)
+    assert abs(g["period"] - 0.45) < 0.005, g
+    assert min(abs(g["phase"] - 0.2), abs(g["phase"] - 0.2 - 0.45)) < 0.03, g
+
+
 # ---------------------------------------------------------------- search normalisation
 def test_traditional_simplified_folding():
     from textnorm import norm

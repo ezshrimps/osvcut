@@ -43,7 +43,8 @@ def suggest(motion, tx, dur):
 KIND_SCORE = {"talk": 3.0, "calm": 2.0}
 
 
-def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="fade", captions="burn", min_len=2.5, max_len=6.0):
+def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="fade", captions="burn", min_len=2.5, max_len=6.0,
+         music=None):
     """clips: library clip dicts (with path, id, duration).  Returns a sequence job body (specs, size, fps, ...)."""
     import analysis
     import look
@@ -82,6 +83,26 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="fade", captions
         if total >= seconds or not progress:
             break
     chosen.sort(key=lambda x: (x["ci"], x["start"]))
+    # beat sync: with background music, every part lasts a whole number of bars (2 beats) plus the transition,
+    # so each transition starts on a beat; the music is then started at its first beat (sequence.py)
+    grid = None
+    if music and music.get("path"):
+        try:
+            from beats import beat_grid
+            g = beat_grid(music["path"])
+            if g and g["confidence"] >= 0.2:
+                grid = g
+        except Exception:                                  # noqa: BLE001
+            grid = None
+    if grid:
+        d = 0.5 if transition and transition != "cut" else 0.0
+        bar = 2 * grid["period"]
+        for x in chosen:
+            room = x["clip"].get("duration", x["end"]) - 0.1 - x["start"]
+            m = max(1, int(round((x["end"] - x["start"] - d) / bar)))
+            while m > 1 and m * bar + d > room:
+                m -= 1
+            x["end"] = x["start"] + min(m * bar + d, room)
     specs = []
     for x in chosen:
         c, a, b = x["clip"], x["start"], x["end"]
@@ -103,4 +124,6 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="fade", captions
                picked=[dict(clip=x["clip"]["id"], kind=x["kind"], start=round(x["start"], 1), end=round(x["end"], 1)) for x in chosen])
     if transition and transition != "cut":
         job["transition"] = dict(type=transition, duration=0.5)
+    if grid:
+        job["beat"] = grid
     return job

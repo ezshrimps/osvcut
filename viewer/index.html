@@ -1504,7 +1504,7 @@ $('holderFollow').onclick=async()=>{
 $('helpBtn').onclick=()=>$('help').classList.add('on');
 /* ---------- one-click edit dialog ---------- */
 let AE=null;
-function openAutoEdit(grp,cs){AE={grp,cs}; $('aeGrp').textContent=`${grp} · ${cs.length} 段`; $('aeMusic').textContent=MUSIC?`使用剪辑台里选的「${MUSIC.name}」`:'无（可在「成片 & 任务」→ 剪辑台里选择）'; $('aeDlg').classList.add('on')}
+function openAutoEdit(grp,cs){AE={grp,cs}; $('aeGrp').textContent=`${grp} · ${cs.length} 段`; $('aeMusic').textContent=MUSIC?`使用剪辑台里选的「${MUSIC.name}」，转场会卡在音乐节拍上`:'无（可在「成片 & 任务」→ 剪辑台里选择）'; $('aeDlg').classList.add('on')}
 $('aeClose').onclick=()=>$('aeDlg').classList.remove('on');
 $('aeDlg').onclick=e=>{if(e.target.id==='aeDlg')$('aeDlg').classList.remove('on')};
 $('aeGo').onclick=async()=>{ if(!AE) return; $('aeGo').disabled=true;

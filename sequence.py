@@ -103,7 +103,8 @@ def main(job_path):
         dur = duration(joined)
         mv, ov = float(music.get("volume", 0.6)), float(music.get("original", 0.5))
         fade = min(3.0, dur / 4)
-        fc = (f"[1:a]aloop=loop=-1:size=2e9,atrim=0:{dur:.3f},volume={mv},afade=t=out:st={max(0, dur - fade):.3f}:d={fade:.3f}[m];"
+        m0 = float(music.get("start", 0) or 0)            # beat sync: start the music at its first beat
+        fc = (f"[1:a]atrim=start={m0:.3f},asetpts=PTS-STARTPTS,aloop=loop=-1:size=2e9,atrim=0:{dur:.3f},volume={mv},afade=t=out:st={max(0, dur - fade):.3f}:d={fade:.3f}[m];"
               f"[0:a]volume={ov}[o];[o][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", joined, "-i", music["path"], "-filter_complex", fc,
                         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",

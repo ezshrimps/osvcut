@@ -404,9 +404,12 @@ class Handler(RangeHandler):
                 if not clips:
                     return self._json({"error": "no usable clips"}, 400)
                 plan = autoedit.plan(clips, seconds=float(b.get("seconds", 30)), aspect=b.get("aspect", "16:9"),
-                                     transition=b.get("transition", "fade"), captions=b.get("captions", "burn"))
+                                     transition=b.get("transition", "fade"), captions=b.get("captions", "burn"),
+                                     music=b.get("music"))
                 if not plan["specs"]:
                     return self._json({"error": "no talk or steady segments found in these clips"}, 400)
+                if plan.get("beat") and b.get("music"):
+                    b["music"] = dict(b["music"], start=plan["beat"]["phase"])
                 b = dict(kind="sequence", specs=plan["specs"], size=plan["size"], fps=plan["fps"], music=b.get("music"),
                          transition=plan.get("transition"), title=b.get("title") or f"一键成片 · {len(plan['specs'])} 段")
                 kind = "sequence"
