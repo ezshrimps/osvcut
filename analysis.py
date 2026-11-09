@@ -86,6 +86,35 @@ def transcribe(src, out, model="small"):
     print("progress 1/1", flush=True)
 
 
+def transcribe_batch(list_json, model="small"):
+    """[{src, out}, ...] with one model load; prints overall progress."""
+    from faster_whisper import WhisperModel
+    items = json.load(open(list_json, encoding="utf8"))
+    m = WhisperModel(model, device="cuda", compute_type="float16")
+    for i, it in enumerate(items):
+        src, out = it["src"], it["out"]
+        if os.path.exists(out):
+            continue
+        wav = out + ".wav"
+        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", src, "-map", "0:a:0", "-ac", "1", "-ar", "16000", wav],
+                           capture_output=True)
+        if r.returncode != 0 or not os.path.exists(wav):
+            json.dump(dict(language=None, segments=[], note="no audio"), open(out, "w", encoding="utf8"), ensure_ascii=False)
+        else:
+            try:
+                segs, info = m.transcribe(wav, vad_filter=True)
+                res = [dict(start=round(s.start, 2), end=round(s.end, 2), text=s.text.strip()) for s in segs]
+                json.dump(dict(language=info.language, segments=res), open(out, "w", encoding="utf8"), ensure_ascii=False)
+            except Exception as e:  # keep going on a bad file
+                json.dump(dict(language=None, segments=[], note=f"error: {e}"), open(out, "w", encoding="utf8"), ensure_ascii=False)
+            finally:
+                if os.path.exists(wav):
+                    os.remove(wav)
+        print(f"progress {i + 1}/{len(items)}", flush=True)
+
+
 if __name__ == "__main__":
     if sys.argv[1] == "transcript":
         transcribe(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == "transcript_batch":
+        transcribe_batch(sys.argv[2])

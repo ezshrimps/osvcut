@@ -435,15 +435,19 @@ class Handler(RangeHandler):
                     pass
             return self._json({"ok": True, "removed": removed})
         if p == "/api/transcribe_all":
-            queued = 0
+            if any(j["kind"] == "transcript_batch" and j["status"] in ("queued", "running") for j in JOBS.values()):
+                return self._json({"ok": True, "queued": 0, "note": "already running"})
             busy = {j["clip"] for j in JOBS.values() if j["kind"] == "transcript" and j["status"] in ("queued", "running")}
-            for c in LIB.listing():
-                out = analysis.transcript_path(c["id"])
-                if c.get("audio") and c.get("duration", 0) > 1 and not os.path.exists(out) and c["id"] not in busy:
-                    new_job("transcript", f"{c['name']} · 语音转写", None, c["id"],
-                            cmd=[sys.executable, "-u", "analysis.py", "transcript", c["path"], out], output=out)
-                    queued += 1
-            return self._json({"ok": True, "queued": queued})
+            items = [dict(src=c["path"], out=analysis.transcript_path(c["id"])) for c in LIB.listing()
+                     if c.get("audio") and c.get("duration", 0) > 1 and not os.path.exists(analysis.transcript_path(c["id"]))
+                     and c["id"] not in busy]
+            if not items:
+                return self._json({"ok": True, "queued": 0})
+            lst = os.path.join(SPECS, "txbatch_" + uuid.uuid4().hex[:8] + ".json")
+            json.dump(items, open(lst, "w", encoding="utf8"), ensure_ascii=False)
+            new_job("transcript_batch", f"批量语音转写 · {len(items)} 段", None, None,
+                    cmd=[sys.executable, "-u", "analysis.py", "transcript_batch", lst], output=lst)
+            return self._json({"ok": True, "queued": len(items)})
         if p == "/api/rescan":
             threading.Thread(target=LIB.scan, daemon=True).start()
             return self._json({"ok": True})
