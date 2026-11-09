@@ -265,7 +265,7 @@ body.bt .btview .btpair img{cursor:default}
           <select id="seqTrans"><option value="">直接切</option><option value="fade" selected>淡入淡出</option><option value="fadeblack">黑场过渡</option><option value="wipeleft">擦除</option><option value="circleopen">圆形展开</option></select>
           <select id="seqTransDur"><option value="0.3">0.3 秒</option><option value="0.5" selected>0.5 秒</option><option value="1">1 秒</option></select>
         </div>
-        <div class="exportrow"><input id="seqTitle" placeholder="整片标题（可选）"><button class="btn primary" id="seqGo">导出整片</button><button class="btn" id="seqClear">清空</button></div>
+        <div class="exportrow"><input id="seqTitle" placeholder="整片标题（可选）"><button class="btn primary" id="seqGo">导出整片</button><button class="btn" id="seqClear">清空</button><button class="btn" id="seqSave" title="把剪辑台（各段、转场、背景音乐设置）保存成 .osvcut.json 文件">保存工程</button><label class="btn" style="cursor:pointer" title="打开之前保存的 .osvcut.json 工程">打开工程<input type="file" id="seqOpen" accept=".json,application/json" style="display:none"></label></div>
       </div>
       <div class="jobs" id="jobs"></div>
       <div class="exports"><h3>导出的成片</h3><div class="expgrid" id="expgrid"></div></div>
@@ -1257,6 +1257,25 @@ $('seqAdd').onclick=()=>{
   saveSeq(); toast(`已加入剪辑台（共 ${SEQ.length} 段）`);
 };
 $('seqClear').onclick=()=>{if(SEQ.length&&confirm('清空剪辑台？')){SEQ=[];saveSeq()}};
+$('seqSave').onclick=()=>{
+  if(!SEQ.length){toast('剪辑台是空的');return}
+  const proj={format:'osvcut-project',version:1,saved:new Date().toISOString(),title:$('seqTitle').value||'',seq:SEQ,music:MUSIC||null,
+    transition:{type:$('seqTrans').value,duration:+$('seqTransDur').value}};
+  const blob=new Blob([JSON.stringify(proj,null,1)],{type:'application/json'}), a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=(proj.title||'osvcut 工程').replace(/[\\/:*?"<>|]+/g,'_')+'.osvcut.json'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000); toast(`已保存工程：${SEQ.length} 段`);
+};
+$('seqOpen').onchange=async e=>{
+  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  let p; try{p=JSON.parse(await f.text())}catch{toast('无法读取这个文件');return}
+  if(p.format!=='osvcut-project'||!Array.isArray(p.seq)){toast('不是 osvcut 工程文件');return}
+  const known=new Set((LIB?.clips||[]).map(c=>c.src)), missing=p.seq.filter(x=>x.spec&&!known.has(x.spec.src)).length;
+  if(SEQ.length&&!confirm(`用工程里的 ${p.seq.length} 段替换当前剪辑台（${SEQ.length} 段）？`)) return;
+  SEQ=p.seq; saveSeq(); $('seqTitle').value=p.title||'';
+  if(p.transition){$('seqTrans').value=p.transition.type||''; $('seqTransDur').value=String(p.transition.duration||0.5)}
+  if(p.music){MUSIC=p.music; try{localStorage.setItem('osvcut.music',JSON.stringify(MUSIC))}catch{} $('musicName').textContent=MUSIC.name||'背景音乐'}
+  toast(`已打开工程：${p.seq.length} 段`+(missing?`（${missing} 段的素材在素材库里找不到，导出前请检查）`:''));
+};
 $('seqGo').onclick=async()=>{
   if(!SEQ.length) return;
   const f=SEQ[0].spec;
