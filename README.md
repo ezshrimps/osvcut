@@ -18,16 +18,27 @@ DJI Studio (and plug-ins such as OpenOSV) are GUI-first. To let an AI edit 360 f
 |---|---|
 | OSV parsing | ffmpeg reads OSV directly (2 × HEVC Main10 fisheye + AAC + `djmd` protobuf). `djmd.py` is a schema-free protobuf decoder: lens calibration (Kannala-Brandt 5), extrinsics, per-frame IMU attitude |
 | Stitching | Calibrated dual-fisheye → equirect on the GPU (PyTorch). 4K (1920²/lens) and 8K (3840²/lens) modes |
-| Seam engine (`seam.py`) | Lens-validity masks (image circle + body/handle occlusion arc + frame edges), per-azimuth exposure/colour compensation in linear light, **optical-flow morphing across an overlap-adaptive transition** (default) or min-difference DP seam |
+| Seam engine (`seam.py`) | Lens-validity masks (image circle + body/handle occlusion arc + frame edges), per-azimuth exposure/colour compensation in linear light, **both lenses half-aligned with optical flow and a ±0.75° morph along a minimum-disagreement closed path** (default) or min-difference DP seam; single-lens fast path outside the seam band |
 | Stabilisation | Horizon levelling from the IMU (empirically derived IMU→body axis map) + smoothed heading |
 | Reframing | Virtual camera keyframes (yaw / pitch / fov, smoothstep easing) → 16:9 / 9:16 / 1:1 MP4 via NVENC |
 | Studio (`server.py` + `viewer/`) | Library of every OSV under a folder with stitched, levelled panorama thumbnails; one-click preview generation (3 quality presets) with progress; WebGL 360 viewer (perspective / wide / little-planet / crystal-ball), minimap with view footprint, horizon grid, seam-inspection overlay, A/B seam comparison |
 | Geometry note | Calibration intrinsics are stored for a 3840-px lens image; the stream scale is `W/3840` (`stitch.lens_scale`). Reading `digital_focal_length/fx` instead (1.3 % larger) misregisters the lenses by ~2.8° around the seam — see `docs/RESEARCH_LOG.md` E29 |
-| Live preview | Opening any clip auto-builds a dual-fisheye proxy (GPU decode/scale, ~4× real time) plus a rig JSON (lens model, usable radii, exposure balance, 15 Hz levelling quaternions); the WebGL shader stitches and levels it in real time. Exports still use the full flow seam |
-| Timeline | IMU motion curve, shake markers, speech segments (faster-whisper transcript, clickable), keyframes, in/out points (`I` / `O`) |
+| Live preview | Opening any clip auto-builds a dual-fisheye proxy (GPU decode/scale, ~4× real time) plus a rig JSON (lens model, usable radii, exposure balance, 15 Hz levelling quaternions); the WebGL shader stitches and levels it in real time, including the flow morph (5 Hz per-azimuth displacement track in the rig; `B` toggles morph / cut). Exports use the full flow seam |
+| Timeline | IMU motion curve, shake markers, speech segments (faster-whisper transcript, clickable), seam-difficulty band (lens-to-lens parallax), keyframes, in/out points (`I` / `O`), undo / redo (`Ctrl+Z` / `Ctrl+Y`) |
 | Subject follow | Shift+drag a box around a person → GPU-rendered tracking views + OpenCV MIL tracker with automatic re-aiming → dense linear keyframes, previewed live and exportable |
-| Export | Keyframed yaw / pitch / fov / distortion (little planet etc.) to 16:9 / 9:16 / 1:1 / 4:5 / 2.39:1 MP4, slow motion / fast forward, multi-clip sequences with background music, or a full levelled 360 MP4 with spherical metadata (YouTube / VR) |
+| Export | Keyframed yaw / pitch / fov / distortion (little planet etc.) to 16:9 / 9:16 / 1:1 / 4:5 / 2.39:1 MP4, slow motion / fast forward, multi-clip sequences with transitions (fade / fade-to-black / wipe / circle) and background music, burned-in or soft captions from the transcript, colour grade (exposure / contrast / saturation / temperature, identical in the live preview), nadir patch over the hand / stick, or a full levelled 360 MP4 with spherical metadata (YouTube / VR), also as a batch per library group |
+| One-click edit | Per library group: picks talk segments (framed on the selfie-stick holder from the IMU, captioned) and steady scenery (slow pan), adds transitions and music → a short film draft (`autoedit.py`, studio dialog, MCP `auto_edit`) |
 | Metrics | `tools_flicker.py` – seam flicker vs. a single-lens no-seam reference; `seamdiag.py` – per-azimuth misalignment and exposure ratio along the seam; `tools_scale_check.py`, `tools_ring_disparity.py` – stream-scale check and wide-search across-seam disparity |
+
+## Results (seam research, 100 frames from 20 clips)
+
+| Method | Contribution disagreement ↓ | CD, parallax-heavy ↓ | Edge dev. ↓ | Exposure step ↓ | Flicker vs. no-seam ref. |
+|---|---|---|---|---|---|
+| Feathered crossfade | 0.064 | 0.094 | 0.229 | 0.017 | −0.211 (blur) |
+| Min-difference DP cut | 0.045 | 0.068 | **0.029** | 0.011 | −0.033 |
+| **osvcut flow seam** | **0.026** | **0.039** | 0.032 (n.s.) | **0.009** | −0.023 |
+
+The flow seam's advantage grows with parallax (CD ratio to the cut 0.76 → 0.42 from zero to ~0.9°). The largest single improvement was a geometry fix: the calibration-to-stream scale is `W/3840`, not `digital_focal_length/fx` (E29). Full protocol, negative results and every number: [`docs/RESEARCH_LOG.md`](docs/RESEARCH_LOG.md) (E1–E49), [`REPORT.md`](REPORT.md) (Chinese), [`paper/`](paper/) (arXiv draft).
 
 ## Quick start
 
