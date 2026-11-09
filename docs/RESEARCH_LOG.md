@@ -161,6 +161,13 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **R.** R² = 0.00–0.07 per frame; k = +0.155 ± 0.073 on one clip and −0.159 ± 0.157 on the other (sign flips); median |flow_β| on measurable ground 0.07–0.26°.
 **C.** Where the overlap is wide enough to measure, ground parallax is small and not explained by a plane model; the visible ground breaks sit in the ~1° handle-side overlap where neither flow nor a weak geometric prior has support. Not pursued; the handle sector is a hardware limit (both lenses are occluded there).
 
+## E16 — Multi-clip temporal stability
+
+**M.** `eval_temporal.py`: 8 clips (seed 1), a random 4-s window each, decoded at 25 fps and rendered in memory to 1920×960 levelled equirect by every method and by the slave lens alone (no seam). Flicker ratio as in E7; reported as the difference to the single-lens reference of the same clip.
+**R.** Excess flicker, mean over clips [min, max]: legacy −0.206 [−0.326, −0.096] (0/8 above reference); smart cut −0.032 [−0.272, +0.072] (3/8); flow + DP ±1.5° −0.039 [−0.200, +0.071] (3/8).
+**C.** Confirms E7/E13 across clips: neither new seam adds measurable flicker (worst case +0.07 on a ratio of ≈1); the feathered stitch's lower value is blur, not stability.
+**Reproduce.** `python eval_temporal.py --clips 8 --seconds 4 --seed 1`.
+
 ---
 
 ## Open questions / next experiments
