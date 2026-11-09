@@ -291,14 +291,40 @@ def render(spec):
     if fz and abs(speed-1)>1e-6: raise ValueError("freeze cannot be combined with speed")
     fz_at=float(fz["at"]) if fz else None; fz_n=int(round(float(fz.get("dur",2.0))*(srcfps/step))) if fz else 0
     fz_turn=float(fz.get("turn",360.0)) if fz else 0.0
+    # slow motion beyond the native frame rate: render every source frame once and synthesise the frames in
+    # between by optical-flow interpolation of the rendered views (interp.py, E60) instead of repeating frames
+    ipol=None
+    if spec.get("interp","flow")=="flow" and ((sl and sl_s*srcfps/fps_out<0.999) or (not sl and speed<1-1e-6 and speed*srcfps/fps_out<0.999)):
+        from interp import Interpolator; ipol=Interpolator()
+    def adv(tout):
+        """Source time of the next output frame: one output frame later, at the local speed, splitting the step
+        where it crosses the edges of the slow-motion range (so the range gets exactly its share of frames)."""
+        if not sl: return tout+speed/fps_out
+        dt=1/fps_out
+        if tout<sl_a:
+            if tout+dt<=sl_a: return tout+dt
+            dt-=sl_a-tout; tout=sl_a
+        if tout<sl_b:
+            if tout+dt*sl_s<=sl_b: return tout+dt*sl_s
+            dt-=(sl_b-tout)/sl_s; tout=sl_b
+        return tout+dt
     def timed_frames():
+        if ipol:                              # yields each source frame with the output phases in [t, t+1/srcfps)
+            tout=t0
+            for j,raw in enumerate(reader):
+                tsrc=t0+j/srcfps; ph=[]
+                while tout<tsrc+1/srcfps-1e-9 and tout<t1:
+                    ph.append(max(0.0,(tout-tsrc)*srcfps))
+                    tout=adv(tout)
+                yield tsrc,raw,None,ph
+            return
         if sl:                                # variable rate: advance source time by 1/fps_out x local speed
             tout=t0
             for j,raw in enumerate(reader):
                 tsrc=t0+j/srcfps
                 while tout<=tsrc+0.5/srcfps and tout<t1:
                     yield tsrc,raw,None
-                    tout+=(sl_s if sl_a<=tout<sl_b else 1.0)/fps_out
+                    tout=adv(tout)
             return
         if abs(speed-1)<1e-6:
             done=False
@@ -327,7 +353,9 @@ def render(spec):
         while x<0.5: tempo.append(0.5); x/=0.5
         tempo.append(x)
         amap=["-filter_complex",f"[1:a]{af},asplit=3[x][y][z];[x]atrim=0:{r1:.3f},asetpts=PTS-STARTPTS[a1];"
-              f"[y]atrim={r1:.3f}:{r2:.3f},asetpts=PTS-STARTPTS,"+",".join(f"atempo={v:.6f}" for v in tempo)+"[a2];"
+              # atempo chains drop their last ~25 ms of input at low speeds: stretch a little more, cut to length
+              f"[y]atrim={r1:.3f}:{r2+0.1:.3f},asetpts=PTS-STARTPTS,"+",".join(f"atempo={v:.6f}" for v in tempo)
+              +f",apad,atrim=0:{(r2-r1)/sl_s:.4f}[a2];"
               f"[z]atrim={r2:.3f},asetpts=PTS-STARTPTS[a3];[a1][a2][a3]concat=n=3:v=0:a=1[aout]","-map","[aout]"]
     if fz:
         has_a=bool(subprocess.run(["ffprobe","-v","error","-select_streams","a","-show_entries","stream=index","-of","csv=p=0",f],capture_output=True,text=True).stdout.strip())
@@ -343,12 +371,19 @@ def render(spec):
     pool=ThreadPoolExecutor(1) if seam_async else None; pending=None; eng_ready=True
     every=max(1,int(spec.get("seam_every",1))); i=0
     total=max(1,int((t1-t0)/speed*fps_out))+fz_n+(int((sl_b-sl_a)*(1/sl_s-1)*fps_out) if sl else 0); eq_base=None
-    for t,raw,fzp in timed_frames():
+    prev_out=None; prev_ph=[]; nw=0
+    def put(o):
+        nonlocal nw
+        writer.put((o*255).byte().permute(1,2,0).contiguous().cpu().numpy().tobytes()); nw+=1
+    for t,raw,fzp,*rest in timed_frames():
+        ph=rest[0] if rest else None
+        if ph is not None and not ph and not any(p>0 for p in prev_ph):
+            continue                          # interpolation mode: this source frame is neither shown nor needed
         i+=1
         im=yuv420_to_rgb(raw,W,2*W)
         imgs=[im[None,:,:,:W],im[None,:,:,W:]]
         M=Ms[min(np.searchsorted(ts,t),len(Ms)-1)]
-        if i%10==0: print(f"progress {i}/{total}",flush=True)
+        if i%10==0: print(f"progress {min(nw if ipol else i,total)}/{total}",flush=True)
         vmask=None
         dyaw=0.0
         if fzp is not None:
@@ -384,7 +419,14 @@ def render(spec):
         if spec.get("nadir_patch",0)>0:
             out=nadir_patch(out,base@torch.tensor(C,dtype=torch.float32,device=dev).T,float(spec["nadir_patch"]))
         if spec.get("grade"): out=grade(out,spec["grade"])
-        writer.put((out*255).byte().permute(1,2,0).contiguous().cpu().numpy().tobytes())
+        if ipol is None: put(out)
+        else:
+            if prev_out is not None:
+                mids=iter(ipol.between(prev_out,out,[p for p in prev_ph if p>1e-3]))
+                for p in prev_ph: put(prev_out if p<=1e-3 else next(mids))
+            prev_out,prev_ph=out,ph
+    if ipol is not None and prev_out is not None:
+        for p in prev_ph: put(prev_out)       # last source frame: nothing to interpolate towards
     if pending is not None: pending.result()
     if pool is not None: pool.shutdown()
     writer.close(); enc.wait(); reader.close()
@@ -398,7 +440,7 @@ def render(spec):
     if spec.get("spherical") and mode=="equirect":
         import spherical; spherical.inject(spec["dst"])
     print(f"progress {total}/{total}",flush=True)
-    print("rendered",i,"frames ->",spec["dst"],flush=True)
+    print("rendered",nw,"frames ->",spec["dst"],flush=True)
 
 if __name__=="__main__":
     render(json.load(open(sys.argv[1],encoding="utf8")))

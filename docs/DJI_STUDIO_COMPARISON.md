@@ -12,7 +12,7 @@ Studio exports of the same clips. osvcut's column is what the code in this repos
 | Reframing + keyframes | Yes | Keyframes (yaw / pitch / fov / distortion), easing, camera-move templates, undo/redo | |
 | Subject tracking | "Intelligent tracking" (people, vehicles, pets) | Shift+drag a box → tracker with re-aiming → keyframes | DJI's tracker is likely stronger; ours is not benchmarked |
 | Projections | Flat, little planet, etc. | Perspective, wide, little planet, crystal ball (continuous eye-offset model) | |
-| Slow motion | Speed ramps; Osmo 360 II: **AI frame interpolation up to "64×"** | Frame-exact slow motion from high-fps footage (4× from 100 fps), local slow-mo of a range, freeze orbit | **Gap:** no frame interpolation |
+| Slow motion | Speed ramps; Osmo 360 II: **AI frame interpolation up to "64×"** | Frame-exact slow motion from high-fps footage, **optical-flow frame interpolation** below the source rate (0.125× / 0.0625× in the studio; +4–5 dB over cross-fading on held-out frames, E60), local slow-mo of a range, freeze orbit | DJI's is learned ("AI"); ours is classical flow — likely weaker at very large motion |
 | Filters / colour | Filters | Exposure / contrast / saturation / temperature, presets, identical in preview and export | |
 | Text / titles | Reviewer: missing text overlays | Title cards, burned-in or soft captions from the transcript | osvcut ahead |
 | Transitions, multi-clip | Reviewer: missing transitions; background music present | Sequences with fade / wipe / circle transitions, music, project files | osvcut ahead |
@@ -25,9 +25,8 @@ Studio exports of the same clips. osvcut's column is what the code in this repos
 
 ## Gaps to close
 
-1. Frame interpolation for slow motion beyond the native frame rate.
-2. 8K equirect export from the UI.
-3. Same-footage stitch comparison (needs DJI Studio exports).
+1. 8K equirect export from the UI.
+2. Same-footage stitch comparison (needs DJI Studio exports).
 
 ## Sources
 

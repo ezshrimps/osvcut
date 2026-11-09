@@ -316,6 +316,26 @@ def test_hallucination_filter():
     assert [s["text"] for s in clean_segments(segs)] == ["Where's our boat?", "You are right", "ok"]
 
 
+# ---------------------------------------------------------------- frame interpolation
+def test_flow_interpolation_moving_texture():
+    """A textured image shifted by 8 px: the flow midpoint is close to the true 4-px shift, unlike a cross-fade."""
+    import numpy as np
+    import torch
+    import cv2
+    from interp import Interpolator
+    rng = np.random.default_rng(0)
+    tex = cv2.GaussianBlur(rng.random((200, 320)).astype(np.float32), (0, 0), 2.0)
+    tex = (tex - tex.min()) / (tex.max() - tex.min())
+    def shifted(dx):
+        return torch.from_numpy(np.ascontiguousarray(tex[40:160, 40 - dx:280 - dx]))[None].repeat(3, 1, 1)
+    a, b, mid = shifted(0), shifted(8), shifted(4)
+    out = Interpolator(scale=1.0).between(a, b, [0.5])[0]
+    inner = (slice(None), slice(10, -10), slice(20, -20))
+    e_flow = float((out - mid)[inner].abs().mean())
+    e_blend = float(((a + b) / 2 - mid)[inner].abs().mean())
+    assert e_flow < 0.3 * e_blend, (e_flow, e_blend)
+
+
 # ---------------------------------------------------------------- runner
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

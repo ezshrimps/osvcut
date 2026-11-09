@@ -466,3 +466,19 @@ E41 re-run: ratio 0.74 → 0.52 (0.46 top bin), flow seam ≤ 0.041 in every bin
 **Q.** E58 found the flow seam and the DP cut indistinguishable in stills. The temporal measurements favour the flow seam on seam flicker (E53); is that visible?
 **M.** `blindtest.make_video_pair`: the same parallax-preferring seam close-up (body frame, 55°, 720×540) as a 3-s clip at ~25 fps, rendered by the flow seam and the DP cut with their normal temporal state (as in an export), libx264 CRF 14; sides random, both clips loop in lock-step in the studio. ~11 s per pair on the RTX GPU; a background thread keeps two pairs in stock. Votes carry `kind: "video"`; `/api/blindtest/stats?kind=video`.
 **R.** Pending (target 30 votes).
+
+## E60 — Flow frame interpolation for slow motion beyond the native frame rate
+
+**Q.** Slower than the source rate (e.g. 0.125× of 100-fps footage at 30 fps), the renderer repeated frames, which stutters; DJI Studio advertises AI frame interpolation. How much does a classical flow interpolator gain?
+**M.** `interp.Interpolator`: Farneback flow both ways on a half-resolution grey image, Super SloMo's quadratic approximation of the intermediate flows, backward warping of both ends, blending with time weights × forward-backward consistency. `eval_interp.py`: 12 random 100-fps clips × 4 runs, a 1280×720 crop of the lens centre; frames 1..g−1 predicted from frames 0 and g (g = 2, 4) and compared with the real frames (PSNR; also on the 20 % of pixels that change most). A first run had ffmpeg pad the start of runs with a duplicated frame (constant-frame-rate output); `-fps_mode passthrough` fixes it (the export reader already used it).
+**R.**
+
+| gap | n | repeat | blend | flow | flow > blend |
+|---|---|---|---|---|---|
+| 2 | 48 | 26.09 dB | 29.07 | **33.82** | 38/48, p = 1e-7 |
+| 4 | 144 | 25.32 | 26.53 | **30.67** | 125/144, p = 2e-22 |
+| 2, moving pixels | | 20.17 | 23.76 | **28.92** | 40/48, p = 5e-8 |
+| 4, moving pixels | | 19.80 | 21.37 | **25.81** | 126/144, p = 9e-23 |
+
+Wired into `osvcut.render` (`"interp": "flow"`, default whenever the output would repeat source frames; `"repeat"` restores the old behaviour): each source frame is rendered once and the in-between frames are interpolated from the rendered views (after grade / nadir patch). 1 s of 100-fps footage at 0.125× → 240 frames at 1280×720 in 10.5 s (repeat: 3.4 s). While testing, the local-slow-motion schedule turned out to start the slow range one output frame late (81 instead of 90 slow frames) and the time-stretched audio to come out 0.24 s short (atempo chains drop their tail), so `-shortest` cut the video: the step is now split at the range edges and the stretched segment is fed 0.1 s extra and cut to length — video and audio 3.700 s each (expected 3.7).
+**C.** Adopted. Classical flow interpolation gains 4–5 dB over cross-fading and 5–8 dB over repetition on real footage; learned interpolators (RIFE etc.) would likely gain more at large motion but need a model download.
