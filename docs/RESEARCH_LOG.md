@@ -319,6 +319,8 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 **R.** CD 0.0351 / **0.0345** / 0.0342 / 0.0340 and edge-hard 0.0735 / **0.0750** / 0.0770 / 0.0789 for winsize 7–21; levels have no effect (the strip is 46 rows); poly 7/1.5: CD 0.0346, edge 0.0813.
 **C.** The default (3, 11, 4, 5, 1.1) sits on the CD–edge trade-off; no setting improves both. Unchanged.
 
+**E40 (negative, not adopted) — motion saliency as a detector-free subject finder.** Levelled 512×256 equirect at t and t + 0.3 s, blurred |difference| restricted to −35°…45° elevation, peak of a 8-px Gaussian. On a casino clip the peak sat on an animated advertising screen and on a beach clip on water glints; the people in both frames (two near the camera) were not the maximum. Rotation is levelled out but screens, water and foliage move too, and camera translation adds parallax motion; a frame-difference cue cannot tell people from them. A real detector is needed.
+
 **Not done, needs the user:** person / face detection for subject framing. OpenCV 5 in this environment ships neither Haar cascades nor the HOG people detector, and `FaceDetectorYN` needs an ONNX model download.
 
 ## E38 — Track rate for the live preview
