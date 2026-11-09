@@ -223,6 +223,24 @@ def test_crossfade_length():
     assert abs(duration(out) - (3 - 2 * 0.3)) < 0.1, duration(out)
 
 
+# ---------------------------------------------------------------- one-click edit: segment suggestions
+def test_suggest_talk_calm_whip():
+    from autoedit import suggest
+    tx = {"segments": [{"start": 1.0, "end": 2.0, "text": "a"}, {"start": 2.5, "end": 3.5, "text": "b"},
+                       {"start": 20.0, "end": 21.0, "text": "c"}]}
+    rate = 10.0
+    speed = [5.0] * 100 + [80.0] * 10 + [5.0] * 90          # calm, a 1-s whip at 10 s, calm again
+    motion = {"rate": rate, "speed": speed, "shake": [1.0] * len(speed), "tilt": [0.0] * len(speed)}
+    S = suggest(motion, tx, 20.0)
+    kinds = [x["kind"] for x in S]
+    talk = [x for x in S if x["kind"] == "talk"]
+    assert talk[0]["start"] == 1.0 and talk[0]["end"] == 3.5 and talk[0]["text"] == "a b"   # merged (gap < 1.5 s)
+    assert len(talk) == 2 and "whip" in kinds and "calm" in kinds
+    w = [x for x in S if x["kind"] == "whip"][0]
+    assert 9.5 <= w["start"] <= 10.0 and 11.0 <= w["end"] <= 11.4
+    assert all(x["end"] - x["start"] <= 8.0 + 1e-9 for x in S if x["kind"] == "calm")
+
+
 # ---------------------------------------------------------------- search normalisation
 def test_traditional_simplified_folding():
     from textnorm import norm
