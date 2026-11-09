@@ -166,7 +166,9 @@ body.bt .btview{display:block}
 .bthead span{color:var(--dim);font-size:12px}
 .btpair{max-width:1400px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .btpair figure{margin:0;background:#000;border:1px solid var(--line);border-radius:8px;overflow:hidden;position:relative;min-height:200px}
-.btpair img{display:block;width:100%;height:auto}
+.btpair img,.btpair video{display:block;width:100%;height:auto}
+.btpair video{display:none} .btview.vid .btpair video{display:block} .btview.vid .btpair img{display:none}
+.btmode{display:flex;gap:6px;margin:2px 0 4px} .btmode .btn.on{background:var(--accent);color:#000;border-color:var(--accent)}
 .btpair figcaption{position:absolute;left:8px;top:8px;background:rgba(0,0,0,.6);padding:2px 8px;border-radius:5px;font-size:12px}
 .btbtns{max-width:1400px;margin:14px auto;display:flex;gap:10px;justify-content:center}
 .btbtns .btn{min-width:120px;padding:9px 14px}
@@ -273,8 +275,8 @@ body.bt .btview .btpair img{cursor:default}
       <div class="exports"><h3>早期样片</h3><div class="expgrid" id="demogrid"></div></div>
     </div>
     <div class="btview" id="btview">
-      <div class="bthead"><b>哪一边的拼接更自然？</b><span>两张图是同一画面、同一位置，用两种不同的拼缝算法渲染，左右随机。只看拼接处（接缝、断线、重影、亮度跳变）。</span></div>
-      <div class="btpair"><figure><img id="btL" alt=""><figcaption>左 <kbd>←</kbd></figcaption></figure><figure><img id="btR" alt=""><figcaption>右 <kbd>→</kbd></figcaption></figure></div>
+      <div class="bthead"><div class="btmode"><button class="btn on" data-k="still">静帧（三种算法）</button><button class="btn" data-k="video">视频（第二轮：动态对比）</button></div><b>哪一边的拼接更自然？</b><span id="btHint">两张图是同一画面、同一位置，用两种不同的拼缝算法渲染，左右随机。只看拼接处（接缝、断线、重影、亮度跳变）。</span></div>
+      <div class="btpair"><figure><img id="btL" alt=""><video id="btVL" muted playsinline></video><figcaption>左 <kbd>←</kbd></figcaption></figure><figure><img id="btR" alt=""><video id="btVR" muted playsinline></video><figcaption>右 <kbd>→</kbd></figcaption></figure></div>
       <div class="btbtns"><button class="btn" data-v="left">左边更好</button><button class="btn" data-v="same">差不多 <kbd>↓</kbd></button><button class="btn" data-v="right">右边更好</button></div>
       <div class="btstat" id="btStat"></div>
     </div>
@@ -1335,14 +1337,25 @@ $('seqGo').onclick=async()=>{
 };
 
 /* ---------- blind seam test ---------- */
-let btCur=null, btNext=null, btBusy=false;
+let btCur=null, btNext=null, btBusy=false, btKind='still';
 const BT_NAMES={legacy:'旧版羽化',smart:'最优切缝',flow:'光流对齐'};
-async function btFetch(){const r=await fetch('/api/blindtest/next',{method:'POST'});const j=await r.json();if(j.error)throw new Error(j.error);
+async function btFetch(){const kind=btKind; const r=await fetch('/api/blindtest/next',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind})});const j=await r.json();if(j.error)throw new Error(j.error);
+  if(kind==='video'){ for(const k of ['left','right']) j[k]=URL.createObjectURL(await (await fetch(j[k])).blob()); j.kind='video'; return j; }
   await Promise.all([j.left,j.right].map(u=>new Promise(res=>{const im=new Image();im.onload=im.onerror=res;im.src=u})));return j}
+// the two videos play in lock-step: each pass restarts both once both have ended
+['btVL','btVR'].forEach(id=>$(id).addEventListener('ended',()=>{const a=$('btVL'),b=$('btVR'); if(a.ended&&b.ended){a.currentTime=0;b.currentTime=0;a.play();b.play();}}));
+document.querySelectorAll('.btmode .btn').forEach(b=>b.onclick=()=>{ if(b.dataset.k===btKind) return; btKind=b.dataset.k;
+  document.querySelectorAll('.btmode .btn').forEach(x=>x.classList.toggle('on',x===b)); $('btview').classList.toggle('vid',btKind==='video');
+  $('btHint').textContent=btKind==='video'?'两段 3 秒循环视频是同一位置、同一时刻，用两种拼缝算法渲染，左右随机。看接缝处在运动中是否闪烁、抖动、扭动或重影。第一段约需 10–20 秒生成。':'两张图是同一画面、同一位置，用两种不同的拼缝算法渲染，左右随机。只看拼接处（接缝、断线、重影、亮度跳变）。';
+  btCur=null; btNext=null; btStats(); btShow(); });
 async function btShow(){
   $('btview').classList.add('loading');
   try{btCur=btNext||await btFetch()}catch(e){$('btStat').textContent='生成失败：'+e.message;return}
-  btNext=null; $('btL').src=btCur.left; $('btR').src=btCur.right; $('btview').classList.remove('loading');
+  btNext=null;
+  if((btCur.kind||'still')!==btKind){ btCur=null; return btShow(); }   // prefetched before a mode switch
+  if(btCur.kind==='video'){ const a=$('btVL'),b=$('btVR'); [a.src,b.src].forEach(u=>u.startsWith('blob:')&&URL.revokeObjectURL(u)); a.src=btCur.left; b.src=btCur.right; a.play().catch(()=>{}); b.play().catch(()=>{}); }
+  else { $('btL').src=btCur.left; $('btR').src=btCur.right; }
+  $('btview').classList.remove('loading');
   btFetch().then(j=>btNext=j).catch(()=>{});
 }
 async function btVote(v){
@@ -1351,7 +1364,9 @@ async function btVote(v){
   btCur=null; await btStats(); btBusy=false; btShow();
 }
 async function btStats(){
-  let s; try{s=await (await fetch('/api/blindtest/stats')).json()}catch{return}
+  let s; try{s=await (await fetch('/api/blindtest/stats'+(btKind==='video'?'?kind=video':''))).json()}catch{return}
+  if(btKind==='video'){ const pr=s.pairs['flow vs smart']||{n:0}; const N=30;
+    $('btStat').innerHTML=`第二轮已评 <b>${s.n}</b> / ${N} 组 <span style="display:inline-block;width:120px;height:6px;background:var(--line);border-radius:3px;vertical-align:middle"><span style="display:block;height:6px;border-radius:3px;background:var(--accent);width:${Math.min(100,s.n/N*100)}%"></span></span>`+(s.n>=20?` · 光流对齐 ${pr.flow??0} · 最优切缝 ${pr.smart??0}（差不多记半票）`:' · 投满 20 组后显示结果，每组约 10 秒'); return; }
   const wr=Object.entries(s.win_rate).filter(([,v])=>v!=null).sort((a,b)=>b[1]-a[1]).map(([m,v])=>`${BT_NAMES[m]||m} ${(v*100).toFixed(0)}%`).join(' · ');
   $('btStat').innerHTML=`已评 <b>${s.n}</b> / 40 组 <span style="display:inline-block;width:120px;height:6px;background:var(--line);border-radius:3px;vertical-align:middle"><span style="display:block;height:6px;border-radius:3px;background:var(--accent);width:${Math.min(100,s.n/40*100)}%"></span></span>` + (s.n>=30&&wr?` · 胜率：${wr}`:' · 投满 30 组后显示结果（避免影响判断），每组约 5–10 秒');
 }

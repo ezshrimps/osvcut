@@ -329,7 +329,7 @@ class Handler(RangeHandler):
             return self._json(dict(proxies=size(PROXIES), previews=size(PREVIEWS), thumbs=size(libmod.THUMBS),
                                    exports=size(EXPORTS, ".mp4"), analysis=size(analysis.ADIR)))
         if p == "/api/blindtest/stats":
-            return self._json(blindtest.stats())
+            return self._json(blindtest.stats("video" if "kind=video" in (u.query or "") else "still"))
         if p == "/api/jobs":
             return self._json([{k: v for k, v in j.items() if not k.startswith("_")}
                                for j in sorted(JOBS.values(), key=lambda j: -j["created"])])
@@ -451,8 +451,11 @@ class Handler(RangeHandler):
             return self._json({"ok": True})
         if p == "/api/blindtest/next":
             try:
-                with libmod._thumb_lock:          # share the GPU politely with thumbnail generation
-                    pr = blindtest.make_pair(LIB)
+                if self._body().get("kind") == "video":     # flow vs. cut in motion, pre-rendered in the background
+                    pr = blindtest.next_video(LIB, libmod._thumb_lock)
+                else:
+                    with libmod._thumb_lock:      # share the GPU politely with thumbnail generation
+                        pr = blindtest.make_pair(LIB)
             except Exception:
                 return self._json({"error": traceback.format_exc()[-600:]}, 500)
             return self._json(pr or {"error": "no pair"}, 200 if pr else 500)
