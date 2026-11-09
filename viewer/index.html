@@ -301,6 +301,7 @@ body.bt .btview .btpair img{cursor:default}
       <tr><td><kbd>Shift</kbd>+拖框</td><td>跟随主体</td><td><kbd>B</kbd></td><td>新 / 旧拼缝（示例片段）</td></tr>
       <tr><td>拖动画面</td><td>转视角</td><td>滚轮</td><td>缩放视场角</td></tr>
       <tr><td>时间线拖动关键帧</td><td>改时间</td><td>右键关键帧</td><td>删除</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>撤销（关键帧、入出点）</td><td><kbd>Ctrl</kbd>+<kbd>Y</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>重做</td></tr>
       <tr><td><kbd>?</kbd></td><td>本帮助</td><td>盲测页 <kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></td><td>左 / 一样 / 右</td></tr>
     </table>
   </div></div>
@@ -1263,14 +1264,39 @@ function saveEdit(){
   try{localStorage.setItem(EDIT_KEY,JSON.stringify(all))}catch{}
 }
 function restoreEdit(c){
-  const e=loadEdits()[c.src]; if(!e) return false;
+  const e=loadEdits()[c.src]; if(!e){setTimeout(histReset,0);return false}
+  setTimeout(histReset,0);
   state.keys=e.keys||[]; state.inP=e.inP??null; state.outP=e.outP??null;
   if(e.aspect!=null){state.aspect=e.aspect;$('aspect').value=String(e.aspect);layout()}
   renderKeys(); toast(`已恢复上次的剪辑：${state.keys.length} 个关键帧`+(state.inP!=null?`，入点 ${fmtDur(state.inP)}`:''));
   return true;
 }
 let _saveT=null;
-function scheduleSave(){clearTimeout(_saveT);_saveT=setTimeout(saveEdit,400)}
+function scheduleSave(){clearTimeout(_saveT);_saveT=setTimeout(()=>{saveEdit();histPush()},400)}
+/* ---------- undo / redo of the edit (keyframes, in / out points) ---------- */
+const HIST={stack:[],pos:-1,src:null};
+const editSnap=()=>JSON.stringify({keys:state.keys,inP:state.inP,outP:state.outP});
+function histReset(){HIST.stack=[editSnap()];HIST.pos=0;HIST.src=state.clip?.src||null}
+function histPush(){
+  if(HIST.src!==(state.clip?.src||null)){histReset();return}
+  const s=editSnap(); if(s===HIST.stack[HIST.pos]) return;
+  HIST.stack=HIST.stack.slice(0,HIST.pos+1); HIST.stack.push(s); if(HIST.stack.length>100) HIST.stack.shift(); HIST.pos=HIST.stack.length-1;
+}
+function histGo(d){
+  clearTimeout(_saveT); histPush();
+  const p=HIST.pos+d; if(p<0||p>=HIST.stack.length){toast(d<0?'没有可以撤销的操作':'没有可以重做的操作');return}
+  HIST.pos=p; const e=JSON.parse(HIST.stack[p]); state.keys=e.keys; state.inP=e.inP; state.outP=e.outP;
+  renderKeys(); if(typeof drawTimeline==='function') drawTimeline(); saveEdit(); writeSpecNoHist();
+  toast(d<0?`已撤销（${state.keys.length} 个关键帧）`:`已重做（${state.keys.length} 个关键帧）`);
+}
+function writeSpecNoHist(){const f=scheduleSave; scheduleSave=()=>{}; try{writeSpec()}finally{scheduleSave=f}}
+document.addEventListener('keydown',e=>{
+  if(!(e.ctrlKey||e.metaKey)) return;
+  if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT'&&e.target.type==='text') return;
+  const k=e.key.toLowerCase();
+  if(k==='z'&&!e.shiftKey){e.preventDefault();histGo(-1)}
+  else if(k==='y'||(k==='z'&&e.shiftKey)){e.preventDefault();histGo(1)}
+});
 
 /* ---------- keyframes on the timeline: drag to move, right-click to delete ---------- */
 let kfDrag=null;
