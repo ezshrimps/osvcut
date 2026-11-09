@@ -394,6 +394,13 @@ Re-runs with the final settings: 8K CD 30/30 vs the cut, hard 29/30 (p = 8e-8), 
 **R.** Render 57.5 → 22–28 ms; max |difference| 0.0035 (< 1 grey level), 0 pixels above 1/255. (A first version with a fixed 4.5° band differed on up to 1 220 pixels by up to 0.07: with the edge margin gone (E45) the path can run at the strip edge, so the transition reaches beyond 4.5°.) 360 export 25.6 → 16.1 s per 10 s (1.6× real time); 2880×1440 preview 14.9 → 10.9 s (27.6 fps).
 **C.** Adopted (automatic for outputs > 400 k pixels, not for diagnostics with `parts=True`).
 
+## E50 — Flow strip resolution 0.2 → 0.1°/px
+
+**Q.** The flow strip samples at 0.2°/px; 4K lenses carry ≈ 0.11°/px and 8K ≈ 0.055°/px. Does a finer strip help?
+**M.** `FlowStitch(fres)`; 8K: 6 clips × 5 frames; 4K: 10 × 4; then the full 100-frame benchmark, temporal and 8K re-runs with 0.1 as the default.
+**R.** 8K: CD 0.0360 → 0.0347 (27/30, p = 1e-5), fidelity 20/30, edges n.s. 4K subset: 0.0290 → 0.0272 (35/40), fidelity 32/40, edges n.s. Full benchmark vs E45: CD 0.0263 → **0.0246** (93/100, p = 2e-16), CD-hard 0.0390 → 0.0360 (81/100), fidelity-hard 0.963 → 0.967 (79/100), edge and step n.s. vs DP cut: CD −45 % (100/100), CD-hard −47 % (100/100), step 66/100 better, edge n.s. (p = 0.11), edge-hard still behind (0.061 vs 0.043). Temporal: −0.014 [−0.070, +0.061], 2/8 above reference. 8K final: CD 30/30, step 27/30 vs the cut. Analysis +25 % (171 → 212 ms), but it runs asynchronously: 1080p export 41 fps, 360 export 1.52× real time (unchanged).
+**C.** Default `fres = 0.1`.
+
 ---
 
 ## Open questions / next experiments

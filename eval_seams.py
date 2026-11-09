@@ -47,6 +47,8 @@ def make_engine(name, cal, lenses):
         opts["center"] = "dp"
     elif name == "flow_dp_r15":
         opts.update(center="dp", ramp=1.5)
+    elif name.startswith("fres_"):                 # flow strip resolution, e.g. fres_010 = 0.10 deg/px (E50)
+        opts.update(center="dp", fres=int(name[-3:]) / 100)
     elif name.startswith("conf_"):                 # confidence variants with the final defaults (E48)
         opts.update(center="dp", conf=name[5:])
     elif name.startswith("room_"):                 # margin sweep, e.g. room_030 = 0.30 deg (E45)
