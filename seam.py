@@ -306,7 +306,7 @@ class FlowStitch(SmartStitch):
     near objects stay single and continuous instead of doubling or being cut."""
 
     def __init__(self, cal, lenses, device=None, fband=4.5, fres=0.2, ramp=0.75, flow_ema=0.5,
-                 max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, conf="fb", flow="farneback",
+                 max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, conf="photo", flow="farneback",
                  narrow="off", narrow_warp=3.0, warp=1.0, gate=0.0, flow1d=False,
                  fb_params=(3, 11, 4, 5, 1.1), grad_w=0.25, centre_w=0.0, room_min=0.0, **kw):
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")

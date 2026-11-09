@@ -386,7 +386,7 @@ Re-runs with the final settings: 8K CD 30/30 vs the cut, hard 29/30 (p = 8e-8), 
 
 **M.** With the final defaults (±0.75°, no centre prior, no edge margin): photometric (`photo`), forward–backward (`fb`) and their product (`both`, aimed at repetitive texture matching the wrong period), 10 clips × 4 frames.
 **R.** CD 0.0290 / 0.0291 / 0.0290; CD-hard 0.0418 / 0.0420 / 0.0418; edge-hard 0.0433 / 0.0425 / 0.0431; edge 0.0281 / 0.0285 / 0.0284; step 0.0095 / 0.0099 / 0.0096 — all within noise.
-**C.** The confidence definition is no longer a limiting factor. `photo` kept (one flow instead of two). `conf="both"` remains available.
+**C.** The confidence definition is no longer a limiting factor. `photo` kept (one flow instead of two). `conf="both"` remains available. The class default is now `photo` as well (exports did not pass `seam_opts` and used `fb`, i.e. two Farneback passes): a default 1080p30 reframed export runs at 35.7 fps, up from 25.8.
 
 ---
 
