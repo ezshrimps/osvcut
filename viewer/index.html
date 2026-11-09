@@ -278,6 +278,11 @@ body.bt .btview .btpair img{cursor:default}
     </section>
 
     <section>
+      <h2>建议片段</h2>
+      <div class="tx" id="sug"><div class="empty">打开片段后自动分析</div></div>
+    </section>
+
+    <section>
       <h2>全景地图</h2>
       <canvas id="mini" width="640" height="320"></canvas>
       <div class="minicap">点击跳转视角 · 黄框为当前画面覆盖范围</div>
@@ -720,13 +725,13 @@ function clipDuration(){return vid.duration||state.clip?.raw?.duration||0}
 function libIdFor(c){if(!c)return null; if(c.lib)return c.id; const m=LIB.clips.find(x=>x.src===c.src); return m?m.id:null}
 async function loadAnalysis(c){
   const tok=++anaToken; state.motion=null; state.tx=null; state.inP=state.outP=null;
-  const id=libIdFor(c); renderTx();
+  const id=libIdFor(c); renderTx(); renderSuggest();
   if(!id){$('tx').innerHTML='<div class="empty">这段不在素材库里，无法分析</div>';return}
-  fetch(`/api/clip/${id}/motion`).then(r=>r.json()).then(m=>{if(tok===anaToken&&!m.error)state.motion=m});
+  fetch(`/api/clip/${id}/motion`).then(r=>r.json()).then(m=>{if(tok===anaToken&&!m.error){state.motion=m;renderSuggest()}});
   const poll=async()=>{
     if(tok!==anaToken) return;
     let t; try{t=await (await fetch(`/api/clip/${id}/transcript`)).json()}catch{return}
-    if(t.status==='done'){state.tx=t; renderTx()}
+    if(t.status==='done'){state.tx=t; renderTx(); renderSuggest()}
     else{$('tx').innerHTML=`<div class="empty">正在转写语音… ${Math.round((t.progress||0)*100)}%</div>`; setTimeout(poll,2000)}
   };
   poll();
@@ -923,6 +928,46 @@ async function btStats(){
 document.querySelectorAll('.btbtns .btn').forEach(b=>b.onclick=()=>btVote(b.dataset.v));
 document.addEventListener('keydown',e=>{if(!document.body.classList.contains('bt'))return;
   const v={ArrowLeft:'left',ArrowRight:'right',ArrowDown:'same'}[e.key]; if(v){e.preventDefault();e.stopImmediatePropagation();btVote(v)}},true);
+
+/* ---------- suggested segments from motion + speech ---------- */
+function runs(arr, rate, pred, minLen){ // contiguous runs where pred(i) holds, in seconds
+  const out=[]; let s=-1;
+  for(let i=0;i<=arr.length;i++){const ok=i<arr.length&&pred(i);
+    if(ok&&s<0)s=i; if(!ok&&s>=0){if((i-s)/rate>=minLen)out.push([s/rate,i/rate]); s=-1}}
+  return out;
+}
+function suggestions(){
+  const S=[], m=state.motion, tx=state.tx, D=clipDuration();
+  if(tx&&tx.segments.length){
+    let cur=null;
+    for(const s of tx.segments){
+      if(cur&&s.start-cur.end<1.5&&s.end-cur.start<=8){cur.end=s.end;cur.text+=' '+s.text}
+      else{if(cur)S.push(cur);cur={kind:'talk',start:s.start,end:s.end,text:s.text}}
+    }
+    if(cur)S.push(cur);
+  }
+  if(m&&m.speed.length){
+    const shSorted=[...m.shake].sort((a,b)=>a-b), shQ=shSorted[Math.floor(shSorted.length*0.6)]||0;
+    for(const [a,b] of runs(m.speed,m.rate,i=>m.speed[i]<20&&m.shake[i]<=Math.max(8,shQ),2.5))
+      S.push({kind:'calm',start:a,end:Math.min(b,a+8),text:'稳定画面，适合风景 / 环视'});
+    for(const [a,b] of runs(m.speed,m.rate,i=>m.speed[i]>45,0.5))
+      S.push({kind:'whip',start:Math.max(0,a-0.3),end:Math.min(D,b+0.3),text:'快速转动，可做甩镜转场'});
+  }
+  S.forEach(s=>{s.start=Math.max(0,s.start-0.2);s.end=Math.min(D||s.end,s.end+0.3)});
+  const order={talk:0,calm:1,whip:2};
+  return S.filter(s=>s.end-s.start>=0.8).sort((a,b)=>a.start-b.start||order[a.kind]-order[b.kind]);
+}
+const SUG_ICON={talk:'💬',calm:'🌄',whip:'↻'};
+function renderSuggest(){
+  const box=$('sug'); if(!box) return;
+  if(!state.motion&&!state.tx){box.innerHTML='<div class="empty">打开片段后自动分析</div>';return}
+  const S=suggestions();
+  if(!S.length){box.innerHTML='<div class="empty">没有找到明显的片段</div>';return}
+  box.innerHTML=S.map((s,i)=>`<div data-i="${i}"><b>${fmtDur(s.start)}–${fmtDur(s.end)}</b><span>${SUG_ICON[s.kind]} ${esc(s.text.length>60?s.text.slice(0,60)+'…':s.text)}</span></div>`).join('');
+  box.querySelectorAll('div[data-i]').forEach(d=>d.onclick=()=>{const s=S[+d.dataset.i];
+    state.inP=s.start; state.outP=s.end; writeSpec(); if(vid.src){vid.currentTime=s.start; vid.play().catch(()=>{})}
+    toast(`已设入出点 ${fmtDur(s.start)} → ${fmtDur(s.end)}`)});
+}
 
 /* ---------- tabs ---------- */
 function setTab(t){
