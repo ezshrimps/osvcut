@@ -340,6 +340,7 @@ body.bt .btview .btpair img{cursor:default}
         <select id="aspect"><option value="0">自由（铺满）</option><option value="1.7778">16:9</option><option value="0.5625">9:16</option><option value="1">1:1</option><option value="0.8">4:5</option><option value="2.3529">2.39:1 电影</option></select>
       </div>
       <label class="check"><input type="checkbox" id="grid"> 经纬网格（检查地平线是否水平）</label>
+      <label class="check"><input type="checkbox" id="seamViz"> 显示接缝（红线 = 当前拼缝，黄色 = 只有一个镜头看得到）</label>
     </section>
 
     <section id="abSec">
@@ -414,8 +415,10 @@ vec4 lensSample(int i, vec3 db){
   if(seamOn==0) col *= (i==0 ? g0 : g1);
   return vec4(col, valid);
 }
-out vec4 o; const float PI=3.14159265359; uniform float nadirDeg;
+out vec4 o; const float PI=3.14159265359; uniform float nadirDeg; uniform int seamViz;
+float gSeam=0.0, gSingle=0.0;          // seam-inspection overlay terms, set by scene()
 vec3 scene(vec3 v){
+  gSeam=0.0; gSingle=0.0;
   float lon=atan(v.x,v.y), lat=asin(clamp(v.z,-1.0,1.0));
   vec3 c;
   if(live==1){
@@ -423,11 +426,12 @@ vec3 scene(vec3 v){
     vec3 db = normalize(Mb*v);
     vec4 a = lensSample(0, db), b = lensSample(1, db);
     float beta = degrees(asin(clamp(db.y,-1.0,1.0)));
-    float t;
+    float t, cen = 0.0;
     if(seamOn==1){
       float alpha = fract(atan(db.z, db.x)/6.28318530718 + 1.0);
       float row = (vtime*seamRate + 0.5)/seamRows;
       float bstar = (texture(seamTex, vec2(alpha, row)).r - 0.5)*9.0;
+      cen = bstar;
       t = clamp((beta - bstar)/1.0 + 0.5, 0.0, 1.0); t = t*t*(3.0-2.0*t);
       vec3 lr = (texture(gainTex, vec2(alpha, row)).rgb - 0.5)*2.0;
       vec3 gmean = (texture(gglobTex, vec2(0.5, row)).rgb - 0.5)*2.0;
@@ -440,6 +444,9 @@ vec3 scene(vec3 v){
     float wa = (1.0-t)*a.w + 1e-4*a.w + (db.y<0.0 ? 1e-6 : 0.0);
     float wb = t*b.w + 1e-4*b.w + (db.y>=0.0 ? 1e-6 : 0.0);
     c = (a.rgb*wa + b.rgb*wb)/(wa+wb);
+    float pxd = max(fwidth(beta), 0.02);
+    gSeam = 1.0 - smoothstep(pxd*0.8, pxd*2.0, abs(beta - cen));
+    gSingle = (abs(beta) < 8.0 && min(a.w, b.w) < 0.5) ? 1.0 : 0.0;
   } else {
     c = texture(tex,vec2(lon/(2.0*PI)+0.5,0.5-lat/PI)).rgb;
   }
@@ -478,7 +485,9 @@ void main(){
   v=vec3(cy*v.x+sy*v.y,-sy*v.x+cy*v.y,v.z);
   float lon=atan(v.x,v.y), lat=asin(clamp(v.z,-1.0,1.0));
   vec3 c = scene(v);
+  float sLine = gSeam, sOne = gSingle;
   if(nadirDeg>0.0) c = nadirFill(v, c);
+  if(seamViz==1){ c = mix(c, vec3(1.0,0.85,0.2), sOne*0.22); c = mix(c, vec3(1.0,0.15,0.15), sLine*0.9); }
   if(grid==1){
     float lo=lon*180.0/PI, la=lat*180.0/PI;
     float dlo=abs(mod(lo+7.5,15.0)-7.5), dla=abs(mod(la+7.5,15.0)-7.5);
@@ -497,7 +506,7 @@ function sh(t,s){const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShade
 const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-const U={};['seamOn','seamTex','gainTex','gglobTex','seamRows','seamRate','vtime','res','yaw','pitch','hfov','dist','grid','live','Mb','R0','R1','k0','k1','k05','k15','f0','f1','c0','c1','rlimTex','lensPx','thetaCut','g0','g1','tex','nadirDeg'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const U={};['seamOn','seamTex','gainTex','gglobTex','seamRows','seamRate','vtime','res','yaw','pitch','hfov','dist','grid','live','Mb','R0','R1','k0','k1','k05','k15','f0','f1','c0','c1','rlimTex','lensPx','thetaCut','g0','g1','tex','nadirDeg','seamViz'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 gl.uniform1i(U.tex,0); gl.uniform1i(U.rlimTex,1); gl.uniform1i(U.live,0);
 gl.uniform1i(U.seamTex,2); gl.uniform1i(U.gainTex,3); gl.uniform1i(U.gglobTex,4); gl.uniform1i(U.seamOn,0);
 const seamT=gl.createTexture(), gainT=gl.createTexture(), gglobT=gl.createTexture();
@@ -633,6 +642,7 @@ $('aspect').onchange=e=>{state.aspect=+e.target.value;layout();writeSpec()};
 ['projSel','seamSel','cqSel','fpsSel','speedSel','nadirSel'].forEach(id=>$(id).onchange=()=>writeSpec());
 $('speedSel').addEventListener('change',()=>{vid.playbackRate=+$('speedSel').value;$('rate').value=String(Math.min(1,+$('speedSel').value))});
 $('grid').onchange=e=>state.grid=e.target.checked;
+$('seamViz').onchange=e=>state.seamViz=e.target.checked;
 $('follow').onchange=e=>state.follow=e.target.checked;
 $('addkf').onclick=addKey;
 function addKey(){state.keys=state.keys.filter(k=>Math.abs(k.t-vid.currentTime)>0.02);
@@ -705,7 +715,7 @@ function frame(){
   else if(vid.readyState>=2&&(frameDirty||!vid.paused)){gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,vid);frameDirty=false;$('loading').style.display='none';}
   gl.viewport(0,0,canvas.width,canvas.height);
   gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.yaw,state.yaw*D2R);gl.uniform1f(U.pitch,state.pitch*D2R);
-  gl.uniform1f(U.hfov,Math.min(state.hfov,maxFov(state.dist))*D2R);gl.uniform1f(U.dist,state.dist);gl.uniform1f(U.nadirDeg,+($('nadirSel')?.value||0));gl.uniform1i(U.grid,state.grid?1:0);
+  gl.uniform1f(U.hfov,Math.min(state.hfov,maxFov(state.dist))*D2R);gl.uniform1f(U.dist,state.dist);gl.uniform1f(U.nadirDeg,+($('nadirSel')?.value||0));gl.uniform1i(U.grid,state.grid?1:0);gl.uniform1i(U.seamViz,state.seamViz?1:0);
   if(RIG){gl.uniformMatrix3fv(U.Mb,false,rigMatrix(vid.currentTime||0)); gl.uniform1f(U.vtime,vid.currentTime||0);}
   gl.drawArrays(gl.TRIANGLES,0,3);
   drawMini(); drawTimeline(); updateTxHighlight();

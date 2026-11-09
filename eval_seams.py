@@ -47,6 +47,8 @@ def make_engine(name, cal, lenses):
         opts["center"] = "dp"
     elif name == "flow_dp_r15":
         opts.update(center="dp", ramp=1.5)
+    elif name == "flow_dp_r3":
+        opts.update(center="dp", ramp=3.0)
     elif name == "flow_dp_r15_lk":
         opts.update(center="dp", ramp=1.5, flow="lk")
     elif name == "flow_dp_r15_photo":
