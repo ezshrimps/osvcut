@@ -208,18 +208,18 @@ by dynamic programming with slope $\le1$ row per column, starting and ending at 
 
 \begin{table}[t]
 \centering\small
-\caption{Seam benchmark, $n=100$ frames from 20 clips; means with 95\% bootstrap intervals for CD. Runtime is update+render of one $3840\times1920$ frame on an RTX 4070 Ti.}
+\caption{Seam benchmark with the corrected stream scale, $n=100$ frames from 20 clips; means with 95\% bootstrap intervals for CD. Runtime is update+render of one $3840\times1920$ frame on an RTX 4070 Ti (measured on an idle GPU; it does not depend on the scale).}
 \label{tab:bench}
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{lcccccr}
 \toprule
 Method & CD $\downarrow$ & CD hard $\downarrow$ & Edge hard $\downarrow$ & Fidelity hard $\uparrow$ & Step $\downarrow$ & ms \\
 \midrule
-Feathered ($12^\circ$ crossfade) & 0.101 [.093,.109] & 0.133 & 0.188 & 0.853 & 0.030 & 23 \\
-Min-difference cut (DP)          & 0.071 [.066,.075] & 0.092 & \textbf{0.052} & \textbf{0.967} & 0.023 & 146 \\
-Flow, ramp centred in overlap    & 0.085 [.079,.091] & 0.119 & 0.076 & 0.870 & 0.028 & 169 \\
-Flow + DP path, $\pm3^\circ$     & 0.071 [.066,.076] & 0.097 & 0.086 & 0.884 & \textbf{0.023} & 180 \\
-\textbf{Flow + DP path, $\pm1.5^\circ$ (ours)} & \textbf{0.063} [.059,.067] & \textbf{0.084} & 0.065 & 0.929 & 0.025 & 180 \\
+Feathered ($12^\circ$ crossfade) & 0.064 [.058,.071] & 0.094 & 0.235 & 0.875 & 0.017 & 23 \\
+Min-difference cut (DP)          & 0.045 [.041,.048] & 0.068 & \textbf{0.043} & \textbf{0.977} & \textbf{0.011} & 146 \\
+Flow, ramp centred in overlap    & 0.036 [.033,.040] & 0.057 & 0.087 & 0.919 & 0.015 & 169 \\
+Flow + DP path, $\pm3^\circ$     & 0.032 [.029,.036] & 0.049 & 0.075 & 0.879 & 0.013 & 180 \\
+\textbf{Flow + DP path, $\pm1.5^\circ$ (ours)} & \textbf{0.031} [.028,.034] & \textbf{0.046} & 0.084 & 0.927 & 0.014 & 180 \\
 \bottomrule
 \end{tabular}}
 \end{table}
@@ -228,7 +228,7 @@ Flow + DP path, $\pm3^\circ$     & 0.071 [.066,.076] & 0.097 & 0.086 & 0.884 & \
 \centering
 \begin{tikzpicture}
 \begin{axis}[
-  ybar, bar width=9pt, width=0.95\linewidth, height=5.2cm, ymin=0, ymax=0.15,
+  ybar, bar width=9pt, width=0.95\linewidth, height=5.2cm, ymin=0, ymax=0.11,
   ylabel={contribution disagreement}, ylabel style={font=\footnotesize},
   symbolic x coords={Feathered,DP cut,Flow centred,Flow+DP 3,Ours},
   xtick=data, xticklabel style={font=\footnotesize, align=center},
@@ -237,11 +237,11 @@ Flow + DP path, $\pm3^\circ$     & 0.071 [.066,.076] & 0.097 & 0.086 & 0.884 & \
   enlarge x limits=0.13, ymajorgrids, grid style={gray!25},
   error bars/y dir=both, error bars/y explicit]
 \addplot+[fill=gray!45, draw=gray!70] coordinates {
-  (Feathered,0.1007) +- (0,0.0079) (DP cut,0.0706) +- (0,0.0043) (Flow centred,0.0853) +- (0,0.0062)
-  (Flow+DP 3,0.0711) +- (0,0.0052) (Ours,0.0629) +- (0,0.0041)};
+  (Feathered,0.0640) +- (0,0.0066) (DP cut,0.0445) +- (0,0.0032) (Flow centred,0.0360) +- (0,0.0036)
+  (Flow+DP 3,0.0324) +- (0,0.0036) (Ours,0.0309) +- (0,0.0033)};
 \addplot+[fill=orange!60, draw=orange!80!black] coordinates {
-  (Feathered,0.1334) +- (0,0.0067) (DP cut,0.0923) +- (0,0.0042) (Flow centred,0.1187) +- (0,0.0059)
-  (Flow+DP 3,0.0972) +- (0,0.0048) (Ours,0.0836) +- (0,0.0039)};
+  (Feathered,0.0941) +- (0,0.0067) (DP cut,0.0677) +- (0,0.0043) (Flow centred,0.0565) +- (0,0.0065)
+  (Flow+DP 3,0.0494) +- (0,0.0051) (Ours,0.0460) +- (0,0.0042)};
 \legend{all seam pixels, parallax-heavy subset}
 \end{axis}
 \end{tikzpicture}
@@ -249,9 +249,9 @@ Flow + DP path, $\pm3^\circ$     & 0.071 [.066,.076] & 0.097 & 0.086 & 0.884 & \
 \label{fig:bench}
 \end{figure}
 
-\paragraph{Results.} Table~\ref{tab:bench}. Against the minimum-difference cut, our seam has lower CD on 79/100 frames (Wilcoxon $p=1.6\times10^{-13}$) and lower CD on the hard subset on 82/100 ($p=1.7\times10^{-10}$); the cut keeps slightly crisper edges on the hard subset (edge deviation $+0.014$, $p=0.022$) and, by construction, higher fidelity. The two methods therefore trade differently: the cut copies one lens almost everywhere and is exact except where its path must cross mismatched content (where objects can be duplicated or cut), while the morph removes most of that mismatch at the price of a small increase in edge energy. Which trade viewers prefer is the question the perceptual study is designed to answer. The benchmark is dominated by 4K handheld footage; on 30 frames from six 8K clips (mostly static indoor scenes) the flow seam has lower CD than the cut on 24/30 frames ($p=5.5\times10^{-4}$; hard subset 19/30, $p=0.11$) with the same edge trade-off, and is far ahead of the feathered stitch (30/30). Against the feathered stitch our seam is better on every metric except the exposure step (n.s., $p=0.25$). Centring a flow morph in the overlap is clearly worse than placing it on the minimum-disagreement path, and a narrow transition beats a wide one.
+\paragraph{Results.} Table~\ref{tab:bench}. Against the minimum-difference cut, our seam has lower CD on 89/100 frames (Wilcoxon $p=3.6\times10^{-17}$) and lower CD on the hard subset on 92/100 ($p=3.3\times10^{-17}$); the cut keeps crisper edges on the hard subset (edge deviation $+0.041$, $p=4.2\times10^{-10}$), a smaller exposure step and, by construction, higher fidelity. The two methods therefore trade differently: the cut copies one lens almost everywhere and is exact except where its path must cross mismatched content (where objects can be duplicated or cut), while the morph removes most of that mismatch at the price of a small increase in edge energy. Which trade viewers prefer is the question the perceptual study is designed to answer. The benchmark is dominated by 4K handheld footage; on 30 frames from six 8K clips (mostly static indoor scenes) the flow seam has lower CD than the cut on 24/30 frames ($p=5.5\times10^{-4}$; hard subset 19/30, $p=0.11$) with the same edge trade-off, and is far ahead of the feathered stitch (30/30). Against the feathered stitch our seam is better on every metric (CD 100/100 frames; exposure step 62/100, $p=0.025$). Centring a flow morph in the overlap is clearly worse than placing it on the minimum-disagreement path, and a narrow transition beats a wide one.
 
-\paragraph{Ablations.} (i) \emph{Path placement}: a flow morph centred in the overlap has CD 0.085 vs 0.063 on the minimum-disagreement path (98/100 frames worse). (ii) \emph{Ramp width}: $\pm3^\circ$ vs $\pm1.5^\circ$ on the same path, CD 0.071 vs 0.063 (92/100 worse) and edge deviation 0.094 vs 0.065. (iii) \emph{Anti-aliased flow input} (sampling the strip at $0.1^\circ$ and pooling to $0.2^\circ$): CD $-0.0001$ ($p=0.028$), no practical effect. (iv) \emph{Two-band blending} (low frequencies over $\pm6^\circ$, high frequencies over $\pm1.5^\circ$): CD unchanged by construction, edge deviation $0.059$ vs $0.065$ (79/100 better, $p=2.9\times10^{-6}$), exposure step $0.0233$ vs $0.0245$ ($p=0.047$), at the cost of $0.022$ fidelity; offered as an option.
+\paragraph{Ablations.} (i) \emph{Path placement}: a flow morph centred in the overlap has CD 0.036 vs 0.031 on the minimum-disagreement path (100/100 frames worse). (ii) \emph{Ramp width}: $\pm3^\circ$ vs $\pm1.5^\circ$ on the same path, CD 0.032 vs 0.031 (71/100 worse, $p=2\times10^{-6}$) and edge deviation 0.058 vs 0.048, but a smaller exposure step (0.013 vs 0.014). With the corrected scale the advantage of the narrow ramp is smaller than it appeared before, because less misregistration is left for a wide ramp to blur. (iii) \emph{Anti-aliased flow input} (sampling the strip at $0.1^\circ$ and pooling to $0.2^\circ$): CD $-0.0001$ ($p=0.028$), no practical effect. (iv) \emph{Two-band blending} (low frequencies over $\pm6^\circ$, high frequencies over $\pm1.5^\circ$): CD unchanged by construction, edge deviation $0.059$ vs $0.065$ (79/100 better, $p=2.9\times10^{-6}$), exposure step $0.0233$ vs $0.0245$ ($p=0.047$), at the cost of $0.022$ fidelity; offered as an option.
 
 \paragraph{Temporal stability.} On one test clip (300 frames, crowd within one metre) we measure the mean absolute frame difference inside the seam band relative to a nearby band on the same side. A single-lens render with no seam gives the reference ratio 1.510; the feathered stitch gives 1.155 --- lower than the reference because ghosting low-passes the seam band, not because it is more stable. The minimum-difference cut gives 1.507 and our seam 1.361: neither adds flicker. Across 8 further clips (random 4-s windows, 25\,fps, rendered in memory), the excess over each clip's single-lens reference is $-0.032$ [$-0.272$, $+0.072$] for the cut and $-0.039$ [$-0.200$, $+0.071$] for our seam (3/8 clips above the reference for both), versus $-0.206$ for the feathered stitch.
 
