@@ -1,0 +1,21 @@
+# personal footage and everything derived from it — never publish
+samples/
+cache/
+exports/
+specs/
+spec*.json
+viewer/clips.json
+*.mp4
+*.mov
+*.OSV
+*.osv
+*.LRF
+*.jpg
+*.png
+*.wav
+
+# local scratch / debug
+_*
+__pycache__/
+*.pyc
+.claude/

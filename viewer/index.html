@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>osvcut studio</title>
+<style>
+:root{
+  --bg:#0d0e10; --panel:#15171a; --panel2:#1c1f23; --line:#2a2e34; --text:#e7e9ec; --dim:#8b929c;
+  --accent:#f2a93b; --accent2:#4fc3d9; --danger:#e5616b;
+  --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.45 system-ui,"Microsoft YaHei UI","PingFang SC",sans-serif}
+button,select,input,textarea{font:inherit;color:inherit}
+.app{display:grid;grid-template-columns:1fr 360px;grid-template-rows:44px 1fr;height:100vh}
+header{grid-column:1/3;display:flex;align-items:center;gap:16px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:14px;margin:0;font-weight:600;letter-spacing:.02em}
+header h1 span{color:var(--accent)}
+.tabs{display:flex;gap:2px;background:var(--bg);padding:3px;border-radius:7px}
+.tabs button{background:none;border:0;padding:4px 12px;border-radius:5px;color:var(--dim);cursor:pointer}
+.tabs button.on{background:var(--panel2);color:var(--text)}
+header .hint{margin-left:auto;color:var(--dim);font-size:12px}
+kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;color:var(--text)}
+
+main{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0}
+.stage{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#000;overflow:hidden}
+.stage canvas{display:block;cursor:grab;touch-action:none}
+.stage canvas.drag{cursor:grabbing}
+.hud{position:absolute;left:12px;bottom:12px;font-family:var(--mono);font-size:12px;background:rgba(0,0,0,.55);padding:6px 10px;border-radius:6px;pointer-events:none;backdrop-filter:blur(4px)}
+.hud b{color:var(--accent);font-weight:500}
+.badge{position:absolute;right:12px;top:12px;font-size:12px;background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;pointer-events:none;color:var(--dim)}
+.badge.kf{color:var(--accent)}
+.loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim);pointer-events:none}
+.transport{display:flex;align-items:center;gap:10px;padding:8px 14px;border-top:1px solid var(--line);background:var(--panel)}
+.transport button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 10px;cursor:pointer;min-width:34px}
+.transport button:hover{border-color:#3a4049}
+.time{font-family:var(--mono);font-size:12px;color:var(--dim);white-space:nowrap}
+.scrub{position:relative;flex:1;height:22px;display:flex;align-items:center}
+.scrub input{width:100%;margin:0;accent-color:var(--accent)}
+.kfmarks{position:absolute;left:0;right:0;top:0;height:6px;pointer-events:none}
+.kfmarks i{position:absolute;top:0;width:2px;height:6px;background:var(--accent);transform:translateX(-1px)}
+
+aside{border-left:1px solid var(--line);background:var(--panel);overflow-y:auto;min-height:0}
+section{padding:14px 16px;border-bottom:1px solid var(--line)}
+section h2{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:0 0 10px}
+.clips{display:flex;flex-direction:column;gap:4px}
+.clip{text-align:left;background:none;border:1px solid transparent;border-radius:7px;padding:7px 10px;cursor:pointer}
+.clip:hover{background:var(--panel2)}
+.clip.on{background:var(--panel2);border-color:var(--line)}
+.clip.on .t{color:var(--accent)}
+.clip .n{color:var(--dim);font-size:12px}
+.clip.missing{opacity:.45}
+.presets{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.presets button,.btn{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 8px;cursor:pointer}
+.presets button:hover,.btn:hover{border-color:#3a4049}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#1a1205;font-weight:600}
+.row{display:flex;align-items:center;gap:10px;margin-top:10px}
+.row label{width:58px;color:var(--dim);flex:none}
+.row input[type=range]{flex:1;accent-color:var(--accent)}
+.row output{width:48px;text-align:right;font-family:var(--mono);font-size:12px}
+.row select{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 6px}
+.check{display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;color:var(--text)}
+.check input{accent-color:var(--accent)}
+#mini{width:100%;aspect-ratio:2/1;display:block;border-radius:6px;cursor:crosshair;background:#000}
+.minicap{color:var(--dim);font-size:12px;margin-top:6px}
+.kflist{display:flex;flex-direction:column;gap:3px;margin-top:10px;max-height:180px;overflow-y:auto}
+.kfrow{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;padding:4px 6px;border-radius:5px;background:var(--panel2);cursor:pointer}
+.kfrow:hover{outline:1px solid var(--line)}
+.kfrow span{flex:1}
+.kfrow .x{background:none;border:0;color:var(--dim);cursor:pointer;padding:0 4px}
+.kfrow .x:hover{color:var(--danger)}
+.empty{color:var(--dim);font-size:12px;margin-top:8px}
+textarea{width:100%;height:150px;margin-top:10px;background:#0b0c0e;border:1px solid var(--line);border-radius:6px;padding:8px;font-family:var(--mono);font-size:11px;resize:vertical}
+.warn{color:var(--accent);font-size:12px;margin-top:6px}
+.btns{display:flex;gap:6px;flex-wrap:wrap}
+
+.ab{display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--bg);padding:3px;border-radius:7px}
+.ab button{background:none;border:0;padding:6px;border-radius:5px;color:var(--dim);cursor:pointer}
+.ab button.on{background:var(--panel2);color:var(--text)}
+#abOld.on{color:var(--danger)}
+#abNew.on{color:var(--accent)}
+.badge.old{color:var(--danger)}
+.flatview{display:none;flex:1;overflow:auto;padding:20px;gap:20px;align-items:flex-start;justify-content:center;flex-wrap:wrap;background:var(--bg)}
+.flatview figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
+.flatview video{display:block;max-height:70vh;max-width:100%;border-radius:6px;background:#000}
+.flatview figcaption{margin-top:8px;color:var(--dim);font-size:12px}
+body.flat .stage,body.flat .transport{display:none}
+body.flat .flatview{display:flex}
+
+/* ---------- library ---------- */
+.libview{display:none;flex:1;overflow:auto;min-height:0;background:var(--bg)}
+body.lib .stage,body.lib .transport,body.lib aside{display:none}
+body.lib .app{grid-template-columns:1fr}
+body.lib .libview{display:block}
+.libbar{position:sticky;top:0;z-index:3;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 20px;background:rgba(13,14,16,.92);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.libbar input[type=search]{flex:1;min-width:180px;max-width:360px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:6px 10px}
+.chips{display:flex;gap:4px;flex-wrap:wrap}
+.chip{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:3px 10px;cursor:pointer;color:var(--dim);font-size:12px}
+.chip.on{border-color:var(--accent);color:var(--accent)}
+.libstat{margin-left:auto;color:var(--dim);font-size:12px;font-family:var(--mono)}
+.libbar select{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.group{padding:16px 20px 4px}
+.group h3{margin:0 0 10px;font-size:14px;font-weight:600;display:flex;align-items:baseline;gap:10px}
+.group h3 small{color:var(--dim);font-weight:400;font-size:12px;font-family:var(--mono)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.card{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;text-align:left;padding:0;transition:border-color .15s,transform .15s}
+.card:hover{border-color:#4a515b;transform:translateY(-1px)}
+.card .th{position:relative;aspect-ratio:2/1;background:#000 center/cover no-repeat;overflow:hidden}
+.card .th i{position:absolute;inset:0;background:inherit;background-size:200% 100%;background-position:0 50%;transition:background-position 6s linear;opacity:0}
+.card:hover .th i{opacity:1;background-position:100% 50%}
+.card .th .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#444;font-size:12px}
+.card .dur{position:absolute;right:6px;bottom:6px;font-family:var(--mono);font-size:11px;background:rgba(0,0,0,.65);padding:1px 6px;border-radius:4px}
+.card .tags{position:absolute;left:6px;top:6px;display:flex;gap:4px}
+.tag{font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;background:rgba(0,0,0,.65);color:var(--dim)}
+.tag.ok{color:#7ddc8a}.tag.k8{color:var(--accent2)}.tag.run{color:var(--accent)}
+.card .meta{padding:8px 10px}
+.card .meta b{display:block;font-weight:500;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .meta span{color:var(--dim);font-size:11px;font-family:var(--mono)}
+.card .bar{position:absolute;left:0;bottom:0;height:3px;background:var(--accent)}
+
+/* generation overlay on the stage */
+.genbox{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(16,18,21,.92);border:1px solid var(--line);border-radius:12px;padding:18px 20px;min-width:320px;max-width:90%;display:none;backdrop-filter:blur(6px)}
+.genbox h4{margin:0 0 4px;font-size:14px}
+.genbox p{margin:0 0 12px;color:var(--dim);font-size:12px}
+.genbox .opts{display:flex;gap:6px;margin-bottom:12px}
+.genbox .opts button{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:8px 6px;cursor:pointer;text-align:center}
+.genbox .opts button.on{border-color:var(--accent)}
+.genbox .opts small{display:block;color:var(--dim);font-size:11px;margin-top:2px}
+.pbar{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;margin:10px 0 6px}
+.pbar i{display:block;height:100%;background:var(--accent);width:0;transition:width .4s}
+
+/* jobs + exports */
+.jobs{width:100%;max-width:1100px;display:flex;flex-direction:column;gap:6px}
+.jobs h3,.exports h3{margin:0 0 6px;font-size:13px;color:var(--dim);font-weight:600}
+.job{display:grid;grid-template-columns:1fr 160px 90px 70px;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12px}
+.job .st{font-family:var(--mono);color:var(--dim)}
+.job .st.done{color:#7ddc8a}.job .st.failed{color:var(--danger)}.job .st.running{color:var(--accent)}
+.job .err{grid-column:1/-1;color:var(--danger);font-family:var(--mono);font-size:11px;white-space:pre-wrap}
+.exports{width:100%;max-width:1100px}
+.expgrid{display:flex;flex-wrap:wrap;gap:16px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 14px;z-index:20;display:none}
+.exportrow{display:flex;gap:6px;margin-top:8px}
+.exportrow input{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-width:0}
+@media (max-width:900px){
+  .app{grid-template-columns:1fr;grid-template-rows:44px 55vh auto}
+  header{grid-column:1}
+  aside{border-left:0;border-top:1px solid var(--line)}
+  header .hint{display:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1><span>osv</span>cut studio</h1>
+    <div class="tabs"><button id="tabLib">素材库</button><button id="tab360" class="on">360° 查看</button><button id="tabFlat">成片 &amp; 任务 <span id="jobdot"></span></button></div>
+    <div class="hint">拖动转视角 · 滚轮缩放 · <kbd>空格</kbd> 播放 · <kbd>←</kbd><kbd>→</kbd> ±1s · <kbd>K</kbd> 加关键帧 · <kbd>B</kbd> 新/旧拼接</div>
+  </header>
+
+  <main>
+    <div class="stage" id="stage">
+      <canvas id="gl"></canvas>
+      <div class="loading" id="loading">加载中…</div>
+      <div class="hud" id="hud"></div>
+      <div class="badge" id="badge">自由视角</div>
+      <div class="genbox" id="genbox">
+        <h4 id="genTitle">这段素材还没有全景预览</h4>
+        <p id="genSub">下面看到的是静态缩略图，可以先转动视角看看。生成预览后即可播放。</p>
+        <div class="opts" id="genOpts">
+          <button data-q="fast">快速<small>1920 · 25fps</small></button>
+          <button data-q="standard" class="on">标准<small>2880 · 光流拼缝</small></button>
+          <button data-q="high">高清<small>3840 · 50fps</small></button>
+        </div>
+        <div class="pbar" id="genBar" style="display:none"><i></i></div>
+        <div class="btns"><button class="btn primary" id="genGo">生成预览</button><span class="minicap" id="genEta"></span></div>
+      </div>
+    </div>
+    <div class="transport">
+      <button id="play" title="播放/暂停">▶</button>
+      <button id="stepB" title="上一帧">⟨</button>
+      <button id="stepF" title="下一帧">⟩</button>
+      <div class="scrub"><input type="range" id="seek" min="0" max="1000" value="0"><div class="kfmarks" id="kfmarks"></div></div>
+      <span class="time" id="time">0.00 / 0.00</span>
+      <select id="rate" class="btn" title="播放速度">
+        <option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option>
+      </select>
+    </div>
+    <div class="flatview" id="flatview">
+      <div class="jobs" id="jobs"></div>
+      <div class="exports"><h3>导出的成片</h3><div class="expgrid" id="expgrid"></div></div>
+      <div class="exports"><h3>早期样片</h3><div class="expgrid" id="demogrid"></div></div>
+    </div>
+    <div class="libview" id="libview">
+      <div class="libbar">
+        <input type="search" id="q" placeholder="搜索活动、文件名、日期…">
+        <div class="chips" id="cats"></div>
+        <select id="sort"><option value="new">最新拍摄</option><option value="old">最早拍摄</option><option value="long">时长最长</option></select>
+        <label class="check" style="margin:0"><input type="checkbox" id="onlyPrev"> 只看有预览</label>
+        <span class="libstat" id="libstat"></span>
+      </div>
+      <div id="groups"></div>
+    </div>
+  </main>
+  <div class="toast" id="toast"></div>
+
+  <aside>
+    <section>
+      <h2>全景片段</h2>
+      <div class="clips" id="clips"></div>
+      <div class="minicap" id="clipnote"></div>
+    </section>
+
+    <section>
+      <h2>全景地图</h2>
+      <canvas id="mini" width="640" height="320"></canvas>
+      <div class="minicap">点击跳转视角 · 黄框为当前画面覆盖范围</div>
+    </section>
+
+    <section>
+      <h2>视角</h2>
+      <div class="presets">
+        <button data-p="normal">标准</button>
+        <button data-p="wide">广角</button>
+        <button data-p="ultra">超广角</button>
+        <button data-p="ball">水晶球</button>
+        <button data-p="planet">小行星</button>
+        <button data-p="sky">仰望天空</button>
+      </div>
+      <div class="row"><label>视场角</label><input type="range" id="fov" min="20" max="340" step="1"><output id="fovv"></output></div>
+      <div class="row"><label>畸变</label><input type="range" id="dist" min="0" max="1" step="0.01"><output id="distv"></output></div>
+      <div class="row"><label>输出画幅</label>
+        <select id="aspect"><option value="0">自由（铺满）</option><option value="1.7778">16:9</option><option value="0.5625">9:16</option><option value="1">1:1</option></select>
+      </div>
+      <label class="check"><input type="checkbox" id="grid"> 经纬网格（检查地平线是否水平）</label>
+    </section>
+
+    <section id="abSec">
+      <h2>拼接版本对比</h2>
+      <div class="ab"><button id="abNew" class="on">新拼接</button><button id="abOld">旧拼接</button></div>
+      <div class="minicap">按 <kbd>B</kbd> 在同一时间点、同一视角下来回切换</div>
+    </section>
+
+    <section>
+      <h2>镜头关键帧 → osvcut</h2>
+      <div class="btns">
+        <button class="btn primary" id="addkf">＋ 当前视角（K）</button>
+        <button class="btn" id="loadai" style="display:none">载入 AI 方案</button>
+        <button class="btn" id="clearkf">清空</button>
+      </div>
+      <label class="check"><input type="checkbox" id="follow"> 播放时按关键帧运镜（预览成片）</label>
+      <div class="kflist" id="kflist"></div>
+      <div class="empty" id="kfempty">还没有关键帧。转到想要的视角，按 K 记录。</div>
+      <textarea id="spec" readonly spellcheck="false"></textarea>
+      <div class="warn" id="specwarn"></div>
+      <div class="btns" style="margin-top:8px"><button class="btn" id="copyspec">复制 spec JSON</button></div>
+      <div class="exportrow"><input id="exportTitle" placeholder="成片标题（可选）"><button class="btn primary" id="exportGo">导出成片</button></div>
+      <div class="minicap">按上面的关键帧和画幅在 GPU 上渲染 mp4，进度在「成片 &amp; 任务」里看</div>
+    </section>
+  </aside>
+</div>
+
+<video id="vid" crossorigin="anonymous" playsinline muted loop preload="auto" style="display:none"></video>
+
+<script>
+const $=id=>document.getElementById(id);
+const D2R=Math.PI/180, R2D=180/Math.PI;
+const state={yaw:0,pitch:0,hfov:100,dist:0,aspect:0,grid:false,follow:false,keys:[],clip:null,fps:50};
+const vid=$('vid'), canvas=$('gl');
+
+/* ---------- WebGL ---------- */
+const gl=canvas.getContext('webgl2',{antialias:false,preserveDrawingBuffer:false});
+const vs=`#version 300 es
+in vec2 p; void main(){gl_Position=vec4(p,0,1);}`;
+const fs=`#version 300 es
+precision highp float;
+uniform sampler2D tex; uniform vec2 res; uniform float yaw,pitch,hfov,dist; uniform int grid;
+out vec4 o; const float PI=3.14159265359;
+void main(){
+  vec2 p=gl_FragCoord.xy-res*0.5;
+  float h=hfov*0.5;
+  float f=(res.x*0.5)*(dist+cos(h))/((1.0+dist)*sin(h));
+  float k=length(p)/(f*(1.0+dist));
+  float s=k*dist/sqrt(1.0+k*k);
+  if(s>=1.0){o=vec4(0.03,0.03,0.035,1);return;}
+  float th=atan(k)+asin(s);
+  float ph=atan(p.y,p.x);
+  vec3 v=vec3(sin(th)*cos(ph),cos(th),sin(th)*sin(ph));
+  float cp=cos(pitch),sp=sin(pitch);
+  v=vec3(v.x,cp*v.y-sp*v.z,sp*v.y+cp*v.z);
+  float cy=cos(yaw),sy=sin(yaw);
+  v=vec3(cy*v.x+sy*v.y,-sy*v.x+cy*v.y,v.z);
+  float lon=atan(v.x,v.y), lat=asin(clamp(v.z,-1.0,1.0));
+  vec3 c=texture(tex,vec2(lon/(2.0*PI)+0.5,0.5-lat/PI)).rgb;
+  if(grid==1){
+    float lo=lon*180.0/PI, la=lat*180.0/PI;
+    float dlo=abs(mod(lo+7.5,15.0)-7.5), dla=abs(mod(la+7.5,15.0)-7.5);
+    float wlo=fwidth(lo), wla=fwidth(la);
+    float g=0.0;
+    if(wlo<5.0) g=max(g,1.0-smoothstep(0.0,wlo*1.2,dlo));
+    g=max(g,1.0-smoothstep(0.0,wla*1.2,dla));
+    c=mix(c,vec3(1.0),g*0.35);
+    float hz=1.0-smoothstep(0.0,wla*2.0,abs(la));
+    c=mix(c,vec3(0.95,0.66,0.23),hz*0.95);
+    if(wlo<5.0){float fw=1.0-smoothstep(0.0,wlo*2.0,abs(lo)); c=mix(c,vec3(0.31,0.76,0.85),fw*0.9*step(-80.0,la)*step(la,80.0));}
+  }
+  o=vec4(c,1);
+}`;
+function sh(t,s){const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(x);return x}
+const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
+const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U={};['res','yaw','pitch','hfov','dist','grid'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,1,1,0,gl.RGB,gl.UNSIGNED_BYTE,new Uint8Array([0,0,0]));
+let frameDirty=true;
+
+/* ---------- projection math (mirrors shader + osvcut) ---------- */
+const maxFov=d=>(2*Math.acos(-d)*R2D)-1;
+function rayFromPixel(px,py,W,H){ // px,py from centre, y up
+  const h=state.hfov*D2R/2, d=state.dist;
+  const f=(W/2)*(d+Math.cos(h))/((1+d)*Math.sin(h));
+  const k=Math.hypot(px,py)/(f*(1+d)), s=k*d/Math.sqrt(1+k*k);
+  if(s>=1) return null;
+  const th=Math.atan(k)+Math.asin(s), ph=Math.atan2(py,px);
+  let v=[Math.sin(th)*Math.cos(ph),Math.cos(th),Math.sin(th)*Math.sin(ph)];
+  const cp=Math.cos(state.pitch*D2R),sp=Math.sin(state.pitch*D2R);
+  v=[v[0],cp*v[1]-sp*v[2],sp*v[1]+cp*v[2]];
+  const cy=Math.cos(state.yaw*D2R),sy=Math.sin(state.yaw*D2R);
+  v=[cy*v[0]+sy*v[1],-sy*v[0]+cy*v[1],v[2]];
+  return [Math.atan2(v[0],v[1]),Math.asin(Math.max(-1,Math.min(1,v[2])))];
+}
+
+/* ---------- layout ---------- */
+function layout(){
+  const st=$('stage').getBoundingClientRect(); let w=st.width,h=st.height;
+  if(state.aspect>0){ if(w/h>state.aspect) w=h*state.aspect; else h=w/state.aspect; }
+  const dpr=Math.min(devicePixelRatio||1,2);
+  canvas.style.width=w+'px';canvas.style.height=h+'px';
+  canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
+}
+new ResizeObserver(layout).observe($('stage'));
+
+/* ---------- keyframes ---------- */
+function interpKeys(t){
+  const ks=[...state.keys].sort((a,b)=>a.t-b.t); if(!ks.length) return null;
+  if(t<=ks[0].t) return ks[0];
+  for(let i=0;i<ks.length-1;i++){const a=ks[i],b=ks[i+1];
+    if(t<=b.t){let s=(t-a.t)/(b.t-a.t||1);s=s*s*(3-2*s);
+      const dy=((b.yaw-a.yaw+540)%360)-180;
+      return {yaw:a.yaw+dy*s,pitch:a.pitch+(b.pitch-a.pitch)*s,fov:a.fov+(b.fov-a.fov)*s};}}
+  return ks[ks.length-1];
+}
+const r1=x=>Math.round(x*10)/10, r2=x=>Math.round(x*100)/100;
+function normYaw(y){return ((y+540)%360)-180}
+function renderKeys(){
+  const ks=[...state.keys].sort((a,b)=>a.t-b.t);
+  $('kflist').innerHTML='';$('kfempty').style.display=ks.length?'none':'block';
+  ks.forEach(k=>{const row=document.createElement('div');row.className='kfrow';
+    row.innerHTML=`<span>t ${k.t.toFixed(2)}s · yaw ${r1(k.yaw)}° · pitch ${r1(k.pitch)}° · fov ${r1(k.fov)}°</span><button class="x" title="删除">✕</button>`;
+    row.onclick=e=>{if(e.target.classList.contains('x')){state.keys.splice(state.keys.indexOf(k),1);renderKeys();return}
+      vid.currentTime=k.t;Object.assign(state,{yaw:k.yaw,pitch:k.pitch,hfov:k.fov});syncControls();};
+    $('kflist').appendChild(row);});
+  const dur=vid.duration||1;$('kfmarks').innerHTML=ks.map(k=>`<i style="left:${k.t/dur*100}%"></i>`).join('');
+  writeSpec();
+}
+function writeSpec(){
+  const c=state.clip; if(!c) return;
+  const ks=[...state.keys].sort((a,b)=>a.t-b.t);
+  const size=state.aspect&&Math.abs(state.aspect-0.5625)<.01?[1080,1920]:state.aspect===1?[1080,1080]:[1920,1080];
+  const tin=ks.length?Math.max(0,ks[0].t):0, tout=ks.length?Math.min(vid.duration||ks.at(-1).t+1,ks.at(-1).t+1):(vid.duration||0);
+  const spec={src:c.src,in:r2(c.in+tin),out:r2(c.in+tout),proj:'flat',size,fps:50,
+    keys:ks.map(k=>({t:r2(k.t-tin),yaw:r1(k.yaw),pitch:r1(k.pitch),fov:r1(k.fov)})),dst:`samples/${c.id}_cut.mp4`};
+  $('spec').value=JSON.stringify(spec,null,1).replace(/\n\s+(?=[\d\-\]}])/g,' ').replace(/\{\n\s+/g,'{');
+  $('specwarn').textContent=state.dist>0.001?'注意：osvcut 目前只渲染直线投影（畸变=0），畸变设置不会进入导出。':
+    (ks.some(k=>k.fov>150)?'注意：直线投影下 fov>150° 边缘拉伸会很严重。':'');
+}
+
+/* ---------- controls ---------- */
+const presets={normal:{hfov:90,dist:0,pitch:0},wide:{hfov:120,dist:0.15,pitch:0},ultra:{hfov:150,dist:0.4,pitch:0},
+  ball:{hfov:240,dist:1,pitch:0},planet:{hfov:300,dist:1,pitch:-90},sky:{hfov:300,dist:1,pitch:90}};
+document.querySelectorAll('.presets button').forEach(b=>b.onclick=()=>{Object.assign(state,presets[b.dataset.p]);syncControls();});
+function syncControls(){
+  state.hfov=Math.min(state.hfov,maxFov(state.dist));
+  $('fov').max=Math.floor(maxFov(state.dist));$('fov').value=state.hfov;$('fovv').textContent=Math.round(state.hfov)+'°';
+  $('dist').value=state.dist;$('distv').textContent=state.dist.toFixed(2);writeSpec();
+}
+$('fov').oninput=e=>{state.hfov=+e.target.value;syncControls()};
+$('dist').oninput=e=>{state.dist=+e.target.value;syncControls()};
+$('aspect').onchange=e=>{state.aspect=+e.target.value;layout();writeSpec()};
+$('grid').onchange=e=>state.grid=e.target.checked;
+$('follow').onchange=e=>state.follow=e.target.checked;
+$('addkf').onclick=addKey;
+function addKey(){state.keys=state.keys.filter(k=>Math.abs(k.t-vid.currentTime)>0.02);
+  state.keys.push({t:vid.currentTime,yaw:normYaw(state.yaw),pitch:state.pitch,fov:state.hfov});renderKeys();}
+$('clearkf').onclick=()=>{state.keys=[];renderKeys()};
+$('copyspec').onclick=async()=>{try{await navigator.clipboard.writeText($('spec').value);$('copyspec').textContent='已复制 ✓'}catch{$('spec').select();document.execCommand('copy');$('copyspec').textContent='已复制 ✓'}setTimeout(()=>$('copyspec').textContent='复制 spec JSON',1200)};
+$('loadai').onclick=async()=>{const c=state.clip;const s=await (await fetch(c.aiSpec)).json();
+  state.keys=s.keys.map(k=>({t:k.t+s.in-c.in,yaw:k.yaw,pitch:k.pitch,fov:k.fov}));
+  state.dist=0;state.aspect=s.size[0]>s.size[1]?1.7778:0.5625;$('aspect').value=String(state.aspect);
+  state.follow=true;$('follow').checked=true;layout();syncControls();renderKeys();vid.currentTime=state.keys[0].t;vid.play();};
+
+/* drag + zoom */
+let drag=null;
+canvas.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId);canvas.classList.add('drag')});
+canvas.addEventListener('pointermove',e=>{if(!drag)return;
+  const W=canvas.clientWidth, sc=Math.min(state.hfov,150)/W*(state.dist>0.5?0.6:1);
+  const flip=state.pitch<-60&&state.dist>0.5?-1:1;
+  state.yaw-=(e.clientX-drag.x)*sc*flip; state.pitch=Math.max(-90,Math.min(90,state.pitch+(e.clientY-drag.y)*sc));
+  drag={x:e.clientX,y:e.clientY};});
+const endDrag=()=>{drag=null;canvas.classList.remove('drag')};
+canvas.addEventListener('pointerup',endDrag);canvas.addEventListener('pointercancel',endDrag);
+canvas.addEventListener('wheel',e=>{e.preventDefault();state.hfov=Math.max(20,Math.min(maxFov(state.dist),state.hfov*Math.exp(e.deltaY*0.001)));syncControls()},{passive:false});
+
+/* minimap */
+const mini=$('mini'), mc=mini.getContext('2d');
+mini.onclick=e=>{const r=mini.getBoundingClientRect();state.yaw=((e.clientX-r.left)/r.width-0.5)*360;state.pitch=Math.max(-90,Math.min(90,(0.5-(e.clientY-r.top)/r.height)*180));};
+function drawMini(){
+  const W=mini.width,H=mini.height;
+  if(stillImg&&stillImg.complete&&stillImg.naturalWidth) mc.drawImage(stillImg,0,0,W,H);
+  else if(vid.readyState>=2) mc.drawImage(vid,0,0,W,H); else {mc.fillStyle='#000';mc.fillRect(0,0,W,H)}
+  mc.fillStyle='rgba(0,0,0,.25)';mc.fillRect(0,0,W,H);
+  const cw=canvas.width,ch=canvas.height,N=40;mc.fillStyle='#f2a93b';
+  const pts=[];for(let i=0;i<N;i++){const a=i/N;pts.push([(a-.5)*cw,ch/2],[(a-.5)*cw,-ch/2],[cw/2,(a-.5)*ch],[-cw/2,(a-.5)*ch]);}
+  for(const[px,py] of pts){const r=rayFromPixel(px,py,cw,ch);if(!r)continue;
+    mc.fillRect((r[0]/(2*Math.PI)+.5)*W-1.5,(.5-r[1]/Math.PI)*H-1.5,3,3);}
+  const cx=(normYaw(state.yaw)/360+.5)*W, cy=(.5-state.pitch/180)*H;
+  mc.strokeStyle='#4fc3d9';mc.lineWidth=2;mc.beginPath();mc.moveTo(cx-8,cy);mc.lineTo(cx+8,cy);mc.moveTo(cx,cy-8);mc.lineTo(cx,cy+8);mc.stroke();
+  mc.fillStyle='rgba(255,255,255,.7)';mc.font='18px '+getComputedStyle(document.body).fontFamily;
+  [[-180,'后'],[-90,'左'],[0,'前'],[90,'右']].forEach(([y,l])=>mc.fillText(l,(y/360+.5)*W+4,20));
+}
+
+/* transport */
+$('play').onclick=()=>vid.paused?vid.play():vid.pause();
+vid.onplay=()=>$('play').textContent='❚❚';vid.onpause=()=>$('play').textContent='▶';
+$('stepB').onclick=()=>{vid.pause();vid.currentTime=Math.max(0,vid.currentTime-1/state.fps)};
+$('stepF').onclick=()=>{vid.pause();vid.currentTime=Math.min(vid.duration,vid.currentTime+1/state.fps)};
+$('rate').onchange=e=>vid.playbackRate=+e.target.value;
+let seeking=false;
+$('seek').oninput=e=>{seeking=true;vid.currentTime=e.target.value/1000*(vid.duration||0)};
+$('seek').onchange=()=>seeking=false;
+vid.addEventListener('seeked',()=>frameDirty=true);
+document.addEventListener('keydown',e=>{if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT'&&e.target.type!=='range'&&e.target.type!=='checkbox')return;
+  if(e.code==='Space'){e.preventDefault();$('play').click()}
+  else if(e.key==='ArrowLeft'){vid.currentTime=Math.max(0,vid.currentTime-1)}
+  else if(e.key==='ArrowRight'){vid.currentTime=Math.min(vid.duration,vid.currentTime+1)}
+  else if(e.key==='k'||e.key==='K'){addKey()}
+  else if(e.key==='b'||e.key==='B'){if(state.clip&&state.clip.fileOld)setVersion(!state.old)}
+  else if(e.key===','){$('stepB').click()} else if(e.key==='.'){$('stepF').click()}});
+
+/* video frame upload */
+if('requestVideoFrameCallback' in HTMLVideoElement.prototype){
+  const cb=()=>{frameDirty=true;vid.requestVideoFrameCallback(cb)};vid.requestVideoFrameCallback(cb);
+}
+
+/* main loop */
+function frame(){
+  if(state.follow&&state.keys.length&&!drag){const k=interpKeys(vid.currentTime);if(k){state.yaw=k.yaw;state.pitch=k.pitch;state.hfov=k.fov;state.dist=0;}}
+  if(stillImg){ if(frameDirty&&stillImg.complete&&stillImg.naturalWidth){gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,stillImg);frameDirty=false;} }
+  else if(vid.readyState>=2&&(frameDirty||!vid.paused)){gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,vid);frameDirty=false;$('loading').style.display='none';}
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.yaw,state.yaw*D2R);gl.uniform1f(U.pitch,state.pitch*D2R);
+  gl.uniform1f(U.hfov,Math.min(state.hfov,maxFov(state.dist))*D2R);gl.uniform1f(U.dist,state.dist);gl.uniform1i(U.grid,state.grid?1:0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  drawMini();
+  const d=vid.duration||0;$('time').textContent=`${vid.currentTime.toFixed(2)} / ${d.toFixed(2)}`;
+  if(!seeking&&d) $('seek').value=vid.currentTime/d*1000;
+  $('hud').innerHTML=`yaw <b>${normYaw(state.yaw).toFixed(1)}°</b> · pitch <b>${state.pitch.toFixed(1)}°</b> · fov <b>${Math.round(state.hfov)}°</b> · 畸变 <b>${state.dist.toFixed(2)}</b>`;
+  const fol=state.follow&&state.keys.length;
+  $('badge').textContent=(state.clip&&state.clip.fileOld?(state.old?'旧拼接 · ':'新拼接 · '):'')+(fol?'关键帧运镜中':'自由视角');
+  $('badge').className='badge'+(state.old?' old':fol?' kf':'');
+  if(!fol&&document.activeElement!==$('fov')) {$('fov').value=state.hfov;$('fovv').textContent=Math.round(state.hfov)+'°';}
+  requestAnimationFrame(frame);
+}
+
+/* ---------- sources (video or still image) ---------- */
+let stillImg=null;
+function useStill(url){
+  stillImg=new Image(); stillImg.onload=()=>{frameDirty=true;$('loading').style.display='none'}; stillImg.src=url;
+  vid.pause(); vid.removeAttribute('src'); vid.load();
+}
+function toast(msg,ms=2200){const t=$('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',ms)}
+const fmtDur=s=>{s=Math.round(s||0);const m=Math.floor(s/60),ss=s%60;return m>=60?`${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}:${String(ss).padStart(2,'0')}`:`${m}:${String(ss).padStart(2,'0')}`};
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- clips (demo list + library) ---------- */
+let CLIPS, LIB={clips:[]}, JOBS=[];
+function setVersion(old){
+  const c=state.clip; if(!c||!c.fileOld) return;
+  state.old=old; $('abOld').classList.toggle('on',old); $('abNew').classList.toggle('on',!old);
+  const t=vid.currentTime, playing=!vid.paused;
+  vid.src=old?c.fileOld:c.file; vid.load();
+  vid.onloadedmetadata=()=>{vid.currentTime=Math.min(t,vid.duration-0.01);renderKeys();if(playing)vid.play().catch(()=>{});};
+}
+$('abNew').onclick=()=>setVersion(false);
+$('abOld').onclick=()=>setVersion(true);
+function bestPreview(c){const p=c.previews||{};return p.high||p.standard||p.fast||null}
+function libToClip(c){
+  return {id:c.id,lib:true,title:`${c.event||''} · ${c.name}`,src:c.src,in:0,file:bestPreview(c),thumb:c.thumb,
+          note:`${c.lens_px>=3840?'8K':'4K'} 模式 · ${c.fps}fps · ${fmtDur(c.duration)}${c.audio?'':' · 无音频'}${c.shot?' · '+c.shot.replace('T',' '):''}`,raw:c};
+}
+async function loadClip(c){
+  state.clip=c;state.keys=[];state.follow=false;$('follow').checked=false;stillImg=null;
+  state.old=false;$('abOld').classList.remove('on');$('abNew').classList.add('on');
+  $('abSec').style.display=c.fileOld?'':'none';
+  if(c.lib) addRecent(c);
+  document.querySelectorAll('.clip').forEach(b=>b.classList.toggle('on',b.dataset.id===c.id));
+  $('clipnote').textContent=c.note||'';$('loadai').style.display=c.aiSpec?'':'none';
+  $('loading').style.display='flex';$('loading').textContent='加载中…';
+  $('genbox').style.display='none';
+  if(c.file){
+    vid.src=c.file;vid.load();vid.onloadedmetadata=()=>{renderKeys();vid.play().catch(()=>{})};
+    vid.onerror=()=>{$('loading').textContent='视频还没渲染好（或文件不存在），稍后刷新';};
+  }else{
+    useStill(c.thumb); showGen(c);
+  }
+  renderKeys();
+}
+function addRecent(c){
+  const box=$('clips'); if(box.querySelector(`[data-id="${c.id}"]`)) return;
+  const b=document.createElement('button');b.className='clip';b.dataset.id=c.id;
+  b.innerHTML=`<div class="t">${esc(c.title)}</div><div class="n">${esc(c.note)}</div>`;
+  b.onclick=()=>{const fresh=LIB.clips.find(x=>x.id===c.id);loadClip(fresh?libToClip(fresh):c)};
+  box.prepend(b);
+}
+
+/* ---------- preview generation ---------- */
+let genQ='standard';
+document.querySelectorAll('#genOpts button').forEach(b=>b.onclick=()=>{genQ=b.dataset.q;document.querySelectorAll('#genOpts button').forEach(x=>x.classList.toggle('on',x===b));if(state.clip)showGen(state.clip)});
+function jobFor(cid){return JOBS.find(j=>j.clip===cid&&j.kind==='preview'&&(j.status==='queued'||j.status==='running'))}
+function estimate(c,q){ // rough seconds on this machine: frames * per-frame cost
+  const per={fast:0.06,standard:0.14,high:0.22}[q], fps={fast:25,standard:30,high:50}[q];
+  return (c.raw?.duration||c.duration||0)*fps*per*(c.raw?.lens_px>=3840?1.6:1);
+}
+function showGen(c){
+  const box=$('genbox'); box.style.display='block';
+  const j=jobFor(c.id);
+  $('genOpts').style.display=j?'none':'flex'; $('genBar').style.display=j?'block':'none';
+  $('genGo').style.display=j?'none':'';
+  if(j){
+    $('genTitle').textContent=j.status==='queued'?'排队中…':'正在生成全景预览';
+    $('genSub').textContent='可以先拖动下面的静态缩略图看看环境。完成后会自动开始播放。';
+    $('genBar').firstElementChild.style.width=(j.progress*100).toFixed(1)+'%';
+    $('genEta').textContent=j.status==='running'?`${(j.progress*100).toFixed(0)}%`+(j.eta?` · 约剩 ${fmtDur(j.eta)}`:''):'';
+  }else{
+    $('genTitle').textContent='这段素材还没有全景预览';
+    $('genSub').textContent='现在看到的是静态全景缩略图，可以先转动视角看看环境。';
+    $('genEta').textContent='预计 '+fmtDur(estimate(c,genQ));
+  }
+}
+$('genGo').onclick=async()=>{
+  const c=state.clip; if(!c?.lib) return;
+  const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'preview',clip:c.id,preset:genQ})});
+  const j=await r.json(); if(j.error){toast('失败：'+j.error);return}
+  JOBS.unshift(j); showGen(c); toast('已加入任务队列'); pollJobs();
+};
+
+/* ---------- library ---------- */
+const libState={q:'',cat:'',sort:'new',onlyPrev:false};
+async function loadLibrary(){
+  try{LIB=await (await fetch('/api/library',{cache:'no-store'})).json();}catch{return}
+  $('libstat').textContent=LIB.scanning?`扫描中 ${LIB.scanned}/${LIB.total}`:`${LIB.clips.length} 段 · ${fmtDur(LIB.clips.reduce((a,c)=>a+(c.duration||0),0))}`;
+  const cats=[...new Set(LIB.clips.map(c=>c.category).filter(Boolean))].sort();
+  $('cats').innerHTML=['',...cats].map(k=>`<button class="chip${libState.cat===k?' on':''}" data-k="${esc(k)}">${k?esc(k.replace(/^\d+_/,'')):'全部'}</button>`).join('');
+  $('cats').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{libState.cat=b.dataset.k;loadLibrary()});
+  renderLibrary();
+  if(LIB.scanning) setTimeout(loadLibrary,2000);
+}
+const thumbObs=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){const el=e.target;const u=el.dataset.src;
+  const im=new Image();im.onload=()=>{el.style.backgroundImage=`url("${u}")`;el.querySelector('.ph')?.remove()};im.src=u;thumbObs.unobserve(el)}}),{rootMargin:'300px'});
+function renderLibrary(){
+  const q=libState.q.toLowerCase();
+  let list=LIB.clips.filter(c=>(!libState.cat||c.category===libState.cat)&&(!libState.onlyPrev||Object.keys(c.previews||{}).length)
+    &&(!q||(c.event+' '+c.name+' '+(c.shot||'')).toLowerCase().includes(q)));
+  if(libState.sort==='old') list.sort((a,b)=>(a.shot||'').localeCompare(b.shot||''));
+  else if(libState.sort==='long') list.sort((a,b)=>(b.duration||0)-(a.duration||0));
+  const groups=new Map();
+  for(const c of list){const k=libState.sort==='long'?'按时长':(c.event||'未分类');if(!groups.has(k))groups.set(k,[]);groups.get(k).push(c)}
+  const html=[];
+  for(const [k,cs] of groups){
+    html.push(`<div class="group"><h3>${esc(k)} <small>${cs.length} 段 · ${fmtDur(cs.reduce((a,c)=>a+(c.duration||0),0))}</small></h3><div class="grid">`);
+    for(const c of cs){
+      const j=jobFor(c.id), has=Object.keys(c.previews||{}).length;
+      html.push(`<button class="card" data-id="${c.id}"><div class="th" data-src="${c.thumb}"><div class="ph">${c.duration>0?'生成缩略图…':'无法读取'}</div><i></i>
+        <div class="tags">${c.lens_px>=3840?'<span class="tag k8">8K</span>':''}${has?'<span class="tag ok">可播放</span>':''}${j?`<span class="tag run">${j.status==='running'?Math.round(j.progress*100)+'%':'排队'}</span>`:''}${c.audio?'':'<span class="tag">无音频</span>'}</div>
+        <span class="dur">${fmtDur(c.duration)}</span></div>${j?`<div class="bar" style="width:${j.progress*100}%"></div>`:''}
+        <div class="meta"><b>${esc(c.name.replace(/^CAM_/,'').replace(/_D\.OSV$/i,''))}</b><span>${c.shot?esc(c.shot.replace('T',' ').slice(0,16)):''}</span></div></button>`);
+    }
+    html.push('</div></div>');
+  }
+  $('groups').innerHTML=html.join('')||'<div class="group"><p class="empty">没有匹配的素材</p></div>';
+  $('groups').querySelectorAll('.th').forEach(el=>thumbObs.observe(el));
+  $('groups').querySelectorAll('.card').forEach(b=>b.onclick=()=>{const c=LIB.clips.find(x=>x.id===b.dataset.id);setTab('360');loadClip(libToClip(c))});
+}
+$('q').oninput=e=>{libState.q=e.target.value;renderLibrary()};
+$('sort').onchange=e=>{libState.sort=e.target.value;renderLibrary()};
+$('onlyPrev').onchange=e=>{libState.onlyPrev=e.target.checked;renderLibrary()};
+
+/* ---------- jobs + exports ---------- */
+let pollT=null;
+async function pollJobs(){
+  clearTimeout(pollT);
+  const prev=JOBS; try{JOBS=await (await fetch('/api/jobs',{cache:'no-store'})).json()}catch{}
+  const active=JOBS.filter(j=>j.status==='queued'||j.status==='running');
+  $('jobdot').textContent=active.length?`(${active.length})`:'';
+  renderJobs();
+  for(const j of JOBS){const p=prev.find(x=>x.id===j.id);
+    if(p&&p.status!=='done'&&j.status==='done'){
+      toast(`完成：${j.title}`);
+      if(j.kind==='preview'){await loadLibrary();if(state.clip?.id===j.clip&&!state.clip.file){const c=LIB.clips.find(x=>x.id===j.clip);if(c)loadClip(libToClip(c))}}
+      else loadExports();
+    }}
+  if(state.clip?.lib&&!state.clip.file) showGen(state.clip);
+  if(document.body.classList.contains('lib')&&active.length) renderLibrary();
+  pollT=setTimeout(pollJobs,active.length?1500:6000);
+}
+function renderJobs(){
+  const list=JOBS.slice(0,12);
+  $('jobs').innerHTML=list.length?'<h3>任务</h3>'+list.map(j=>`<div class="job"><div>${esc(j.title)}</div>
+    <div class="pbar" style="margin:0"><i style="width:${(j.progress*100).toFixed(1)}%"></i></div>
+    <div class="st ${j.status}">${({queued:'排队中',running:Math.round(j.progress*100)+'%'+(j.eta?' · '+fmtDur(j.eta):''),done:'完成',failed:'失败',cancelled:'已取消'})[j.status]}</div>
+    <div>${j.status==='queued'||j.status==='running'?`<button class="btn" data-cancel="${j.id}">取消</button>`:j.status==='done'&&j.kind==='preview'?`<button class="btn" data-open="${j.clip}">打开</button>`:''}</div>
+    ${j.error?`<div class="err">${esc(j.error)}</div>`:''}</div>`).join(''):'';
+  $('jobs').querySelectorAll('[data-cancel]').forEach(b=>b.onclick=async()=>{await fetch(`/api/jobs/${b.dataset.cancel}/cancel`,{method:'POST'});pollJobs()});
+  $('jobs').querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{const c=LIB.clips.find(x=>x.id===b.dataset.open);if(c){setTab('360');loadClip(libToClip(c))}});
+}
+async function loadExports(){
+  let items=[];try{items=await (await fetch('/api/exports',{cache:'no-store'})).json()}catch{}
+  $('expgrid').innerHTML=items.length?items.map(e=>`<figure><video src="${e.file}" controls loop preload="metadata"></video><figcaption>${esc(e.title)} · ${(e.size/1e6).toFixed(0)} MB · <a href="${e.file}" download style="color:var(--accent2)">下载</a></figcaption></figure>`).join(''):'<p class="empty">还没有导出的成片。在 360° 查看里记录关键帧，然后点「导出成片」。</p>';
+}
+$('exportGo').onclick=async()=>{
+  const c=state.clip; if(!c){return}
+  if(!state.keys.length){toast('先记录至少一个关键帧（按 K）');return}
+  let spec; try{spec=JSON.parse($('spec').value)}catch{toast('spec 无效');return}
+  const title=$('exportTitle').value||`${c.title} · ${state.keys.length} 个关键帧`;
+  const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'export',spec,title})});
+  const j=await r.json(); if(j.error){toast('导出失败：'+j.error);return}
+  toast('已加入导出队列'); pollJobs();
+};
+
+/* ---------- tabs ---------- */
+function setTab(t){
+  document.body.classList.toggle('flat',t==='flat'); document.body.classList.toggle('lib',t==='lib');
+  $('tabLib').classList.toggle('on',t==='lib'); $('tab360').classList.toggle('on',t==='360'); $('tabFlat').classList.toggle('on',t==='flat');
+  if(t!=='360') vid.pause();
+  if(t==='flat'){loadExports();renderJobs()}
+  if(t==='lib') renderLibrary();
+  if(t==='360') layout();
+}
+$('tabLib').onclick=()=>setTab('lib'); $('tab360').onclick=()=>setTab('360'); $('tabFlat').onclick=()=>setTab('flat');
+
+async function init(){
+  try{CLIPS=await (await fetch('clips.json',{cache:'no-store'})).json()}catch{CLIPS={equirect:[],flat:[]}}
+  const box=$('clips');
+  for(const c of CLIPS.equirect){
+    const b=document.createElement('button');b.className='clip';b.dataset.id=c.id;
+    b.innerHTML=`<div class="t">${c.title}</div>`;b.onclick=()=>loadClip(c);box.appendChild(b);
+    fetch(c.file,{method:'HEAD'}).then(r=>{if(!r.ok)b.classList.add('missing')}).catch(()=>b.classList.add('missing'));
+  }
+  $('demogrid').innerHTML=CLIPS.flat.map(f=>`<figure><video src="${f.file}" controls loop preload="metadata"></video><figcaption>${f.title}</figcaption></figure>`).join('');
+  syncControls();layout();requestAnimationFrame(frame);
+  if(CLIPS.equirect.length) loadClip(CLIPS.equirect[0]);
+  loadLibrary(); pollJobs();
+  if(location.hash==='#lib'||!CLIPS.equirect.length) setTab('lib');
+}
+init();
+</script>
+</body>
+</html>
