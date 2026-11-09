@@ -503,6 +503,7 @@ function renderKeys(){
 }
 function writeSpec(){
   const c=state.clip; if(!c) return;
+  if(typeof scheduleSave==='function') scheduleSave();
   const ks=[...state.keys].sort((a,b)=>a.t-b.t);
   const size=state.aspect&&Math.abs(state.aspect-0.5625)<.01?[1080,1920]:state.aspect===1?[1080,1080]:[1920,1080];
   let tin=ks.length?Math.max(0,ks[0].t):0, tout=ks.length?Math.min(vid.duration||ks.at(-1).t+1,ks.at(-1).t+1):(vid.duration||0);
@@ -640,6 +641,7 @@ function libToClip(c){
           note:`${c.lens_px>=3840?'8K':'4K'} 模式 · ${c.fps}fps · ${fmtDur(c.duration)}${c.audio?'':' · 无音频'}${c.shot?' · '+c.shot.replace('T',' '):''}`,raw:c};
 }
 async function loadClip(c){
+  if(state.clip&&typeof saveEdit==='function'){clearTimeout(_saveT);saveEdit()}
   state.clip=c;state.keys=[];state.follow=false;$('follow').checked=false;stillImg=null;
   state.old=false;$('abOld').classList.remove('on');$('abNew').classList.add('on');
   $('abSec').style.display=c.fileOld?'':'none';
@@ -736,7 +738,9 @@ async function loadLibrary(){
 }
 const thumbObs=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){const el=e.target;const u=el.dataset.src;
   const im=new Image();im.onload=()=>{el.style.backgroundImage=`url("${u}")`;el.querySelector('.ph')?.remove()};im.src=u;thumbObs.unobserve(el)}}),{rootMargin:'300px'});
+let EDITS_CACHE={};
 function renderLibrary(){
+  EDITS_CACHE=loadEdits();
   const q=libState.q.toLowerCase();
   let list=LIB.clips.filter(c=>(!libState.cat||c.category===libState.cat)&&(!libState.onlyPrev||Object.keys(c.previews||{}).length)
     &&(!q||(c.event+' '+c.name+' '+(c.shot||'')).toLowerCase().includes(q)));
@@ -750,7 +754,7 @@ function renderLibrary(){
     for(const c of cs){
       const j=jobFor(c.id), has=Object.keys(c.previews||{}).length;
       html.push(`<button class="card" data-id="${c.id}"><div class="th" data-src="${c.thumb}"><div class="ph">${c.duration>0?'生成缩略图…':'无法读取'}</div><i></i>
-        <div class="tags">${c.lens_px>=3840?'<span class="tag k8">8K</span>':''}${has?'<span class="tag ok">可播放</span>':''}${j?`<span class="tag run">${j.status==='running'?Math.round(j.progress*100)+'%':'排队'}</span>`:''}${c.audio?'':'<span class="tag">无音频</span>'}</div>
+        <div class="tags">${c.lens_px>=3840?'<span class="tag k8">8K</span>':''}${has?'<span class="tag ok">可播放</span>':c.proxy?'<span class="tag ok">实时</span>':''}${EDITS_CACHE[c.src]?'<span class="tag run">已编辑</span>':''}${j?`<span class="tag run">${j.status==='running'?Math.round(j.progress*100)+'%':'排队'}</span>`:''}${c.audio?'':'<span class="tag">无音频</span>'}</div>
         <span class="dur">${fmtDur(c.duration)}</span></div>${j?`<div class="bar" style="width:${j.progress*100}%"></div>`:''}
         <div class="meta"><b>${esc(c.name.replace(/^CAM_/,'').replace(/_D\.OSV$/i,''))}</b><span>${c.shot?esc(c.shot.replace('T',' ').slice(0,16)):''}</span></div></button>`);
     }
@@ -815,6 +819,7 @@ function clipDuration(){return vid.duration||state.clip?.raw?.duration||0}
 function libIdFor(c){if(!c)return null; if(c.lib)return c.id; const m=LIB.clips.find(x=>x.src===c.src); return m?m.id:null}
 async function loadAnalysis(c){
   const tok=++anaToken; state.motion=null; state.tx=null; state.inP=state.outP=null;
+  restoreEdit(c);
   const id=libIdFor(c); renderTx(); renderSuggest();
   if(!id){$('tx').innerHTML='<div class="empty">这段不在素材库里，无法分析</div>';return}
   fetch(`/api/clip/${id}/motion`).then(r=>r.json()).then(m=>{if(tok===anaToken&&!m.error){state.motion=m;renderSuggest()}});
@@ -1058,6 +1063,26 @@ function renderSuggest(){
     state.inP=s.start; state.outP=s.end; writeSpec(); if(vid.src){vid.currentTime=s.start; vid.play().catch(()=>{})}
     toast(`已设入出点 ${fmtDur(s.start)} → ${fmtDur(s.end)}`)});
 }
+
+/* ---------- per-clip edit state, persisted locally ---------- */
+const EDIT_KEY='osvcut.edits';
+function loadEdits(){try{return JSON.parse(localStorage.getItem(EDIT_KEY)||'{}')}catch{return {}}}
+function saveEdit(){
+  const c=state.clip; if(!c?.src) return;
+  const all=loadEdits();
+  if(!state.keys.length&&state.inP==null&&state.outP==null){delete all[c.src]}
+  else all[c.src]={keys:state.keys,inP:state.inP,outP:state.outP,aspect:state.aspect,saved:Date.now()};
+  try{localStorage.setItem(EDIT_KEY,JSON.stringify(all))}catch{}
+}
+function restoreEdit(c){
+  const e=loadEdits()[c.src]; if(!e) return false;
+  state.keys=e.keys||[]; state.inP=e.inP??null; state.outP=e.outP??null;
+  if(e.aspect!=null){state.aspect=e.aspect;$('aspect').value=String(e.aspect);layout()}
+  renderKeys(); toast(`已恢复上次的剪辑：${state.keys.length} 个关键帧`+(state.inP!=null?`，入点 ${fmtDur(state.inP)}`:''));
+  return true;
+}
+let _saveT=null;
+function scheduleSave(){clearTimeout(_saveT);_saveT=setTimeout(saveEdit,400)}
 
 /* ---------- tabs ---------- */
 function setTab(t){
