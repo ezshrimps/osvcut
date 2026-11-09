@@ -420,6 +420,12 @@ E41 re-run: ratio 0.74 → 0.52 (0.46 top bin), flow seam ≤ 0.041 in every bin
 **R.** Excess flicker vs the single-lens reference: default −0.014 (2/8 above); flow EMA 0 and 0.8 −0.014 (per-clip differences ≤ 0.003); seam EMA 0.8 −0.015; λ_t 1.2 −0.015; **λ_t 0 +0.057 [−0.035, +0.312], 5/8 above**.
 **C.** The path's temporal term is what keeps the seam steady (without it the path jumps between near-equal minima); the EMAs barely matter at 25 fps. Defaults kept.
 
+## E54 — Two-band blending with the final defaults (reverses)
+
+**M.** `bands=2` vs 1 with the final defaults (±0.75°, no centre prior or margin, 0.1° flow), 10 clips × 4 frames.
+**R.** CD identical by construction; edge 0.041 vs 0.030 (12/40 better, p = 0.008), edge-hard 0.057 vs 0.041 (p = 0.03), step 0.0111 vs 0.0091 (9/40, p = 0.001), fidelity-hard −0.025 (0/40).
+**C.** Under E23's settings two-band blending smoothed edges and steps; with the final seam it is worse on every metric — its wide low-frequency crossfade had been masking defects that are now fixed at the source. Kept as an option, off.
+
 ---
 
 ## Open questions / next experiments
