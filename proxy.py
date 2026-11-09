@@ -38,8 +38,8 @@ def transcode(src, out, lens_px, duration):
            "-filter_complex", f"{chain(0, 'a')};{chain(1, 'b')};[a][b]hstack,format=yuv420p[v]"]
     cpu = ["ffmpeg", "-v", "error", "-y", "-i", src, "-filter_complex",
            f"[0:v:0][0:v:1]hstack,scale={2 * lens_px}:{lens_px},fps=30,format=yuv420p[v]"]
-    tail = ["-map", "[v]", "-map", "0:a?", "-c:v", "h264_nvenc", "-preset", "p4", "-cq", "25", "-g", "30",
-            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", out]
+    tail = ["-map", "[v]", "-map", "0:a?", "-c:v", "h264_nvenc", "-preset", "p5", "-cq", "30", "-g", "30",
+            "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", out]
     for cmd in (gpu + tail, cpu + tail):
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         for line in p.stdout:
