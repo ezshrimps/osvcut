@@ -49,6 +49,10 @@ def make_engine(name, cal, lenses):
         opts.update(center="dp", ramp=1.5)
     elif name == "flow_dp_r3":
         opts.update(center="dp", ramp=3.0)
+    elif name == "flow_dp_r15_nowarp":         # same path and ramp, flow displacement forced to ~0 (E32)
+        opts.update(center="dp", ramp=1.5, max_flow=1e-4)
+    elif name == "smart_r15":                  # DP cut with the flow seam's 1.5-deg half-width transition (E32)
+        return SmartStitch(cal, lenses, blend=3.0)
     elif name == "flow_dp_r15_lk":
         opts.update(center="dp", ramp=1.5, flow="lk")
     elif name == "flow_dp_r15_photo":

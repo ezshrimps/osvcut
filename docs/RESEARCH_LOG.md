@@ -278,6 +278,13 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 **R.** DP path: per-step allocation removed (numpy fallback 8.5 ms) and an optional Numba kernel with identical tie-breaking (0.32 ms; equal paths on random cost maps with ties). Export 14.6 → 25.8 fps (seam every frame), 16.3 → 32.4 fps (every 2nd frame); 2880×1440 standard preview 17.2 → 14.9 s per 10 s.
 **C.** 1080p reframed exports now run faster than real time with `seam_every: 2`; the defaults keep analysis on every frame.
 
+## E32 — Where does the flow seam's advantage come from? (warp vs. path; exposure step)
+
+**Q.** Under the corrected scale the DP cut has a smaller exposure step than the flow seam (0.011 vs 0.014, 28/100, p = 3.4e-8). Is that the warp, the path, or the ramp width? And which part of the flow seam lowers CD?
+**M.** E11 protocol on 10 clips × 4 frames; extra methods: `flow_dp_r15_nowarp` (flow seam with the displacement forced to ~0: same path search on half-aligned strips, same ±1.5° transition) and `smart_r15` (DP cut with a ±1.5° transition instead of its 1° blend).
+**R.** CD: flow seam 0.0345, no-warp 0.0471, DP cut 0.0456, DP cut ±1.5° 0.0500 — the flow seam beats its own no-warp version on 40/40 frames. Edge-hard: 0.075 (flow), 0.049 (no warp), 0.042 (cut). Exposure step: 0.0130 / 0.0128 / 0.0123 / 0.0125, no pair significant on this subset (p ≥ 0.25).
+**C.** The CD gain comes entirely from the flow warp, not from where the path runs; the warp is also what raises the edge deviation. The step difference is ≈ 0.3 % in brightness ratio and not attributable to the warp; practically invisible. No change.
+
 ---
 
 ## Open questions / next experiments
