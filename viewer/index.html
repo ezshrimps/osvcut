@@ -200,7 +200,7 @@ body.bt .btview .btpair img{cursor:default}
   <header>
     <h1><span>osv</span>cut studio</h1>
     <div class="tabs"><button id="tabLib">素材库</button><button id="tab360" class="on">360° 查看</button><button id="tabFlat">成片 &amp; 任务 <span id="jobdot"></span></button><button id="tabBt">拼缝盲测</button></div>
-    <div class="hint">拖动转视角 · 滚轮缩放 · <kbd>空格</kbd> 播放 · <kbd>←</kbd><kbd>→</kbd> ±1s · <kbd>K</kbd> 关键帧 · <kbd>Shift</kbd>+拖框 跟随 · <kbd>I</kbd>/<kbd>O</kbd> 入出点 · <kbd>B</kbd> 新/旧拼接</div>
+    <div class="hint">拖动转视角 · 滚轮缩放 · <kbd>空格</kbd> 播放 · <kbd>←</kbd><kbd>→</kbd> ±1s · <kbd>K</kbd> 关键帧（时间线上可拖动 / 右键删）· <kbd>Shift</kbd>+拖框 跟随 · <kbd>I</kbd>/<kbd>O</kbd> 入出点 · <kbd>B</kbd> 新/旧拼接</div>
   </header>
 
   <main>
@@ -319,6 +319,10 @@ body.bt .btview .btpair img{cursor:default}
         <button class="btn" id="loadai" style="display:none">载入 AI 方案</button>
         <button class="btn" id="clearkf">清空</button>
       </div>
+      <div class="btns" style="margin-top:8px"><span class="minicap" style="margin:0;align-self:center">运镜模板：</span>
+        <button class="btn" data-tpl="planet" title="从小行星视角旋转展开到当前取景">小行星开场</button>
+        <button class="btn" data-tpl="orbit" title="原地水平转一圈">环绕一周</button>
+        <button class="btn" data-tpl="reveal" title="从天空缓缓落到当前取景">抬头揭幕</button></div>
       <label class="check"><input type="checkbox" id="follow"> 播放时按关键帧运镜（预览成片）</label>
       <div class="kflist" id="kflist"></div>
       <div class="empty" id="kfempty">还没有关键帧。转到想要的视角按 K 记录；或在画面上 <kbd>Shift</kbd>+拖框选中一个人，自动跟随。</div>
@@ -1116,6 +1120,55 @@ function restoreEdit(c){
 }
 let _saveT=null;
 function scheduleSave(){clearTimeout(_saveT);_saveT=setTimeout(saveEdit,400)}
+
+/* ---------- keyframes on the timeline: drag to move, right-click to delete ---------- */
+let kfDrag=null;
+function keyAtX(clientX){
+  const r=tl.getBoundingClientRect(), D=clipDuration(); if(!D) return null;
+  let best=null, bd=8;
+  for(const k of state.keys){const x=r.left+k.t/D*r.width, d=Math.abs(x-clientX); if(d<bd){bd=d;best=k}}
+  return best;
+}
+tl.addEventListener('pointerdown',e=>{
+  const k=keyAtX(e.clientX); if(!k||e.button!==0) return;
+  e.stopImmediatePropagation(); kfDrag=k; tl.setPointerCapture(e.pointerId); tl.style.cursor='ew-resize';
+},true);
+tl.addEventListener('pointermove',e=>{
+  if(!kfDrag){tl.style.cursor=keyAtX(e.clientX)?'ew-resize':'pointer';return}
+  e.stopImmediatePropagation();
+  const r=tl.getBoundingClientRect(), D=clipDuration();
+  kfDrag.t=Math.max(0,Math.min(D,(e.clientX-r.left)/r.width*D));
+  if(vid.src) vid.currentTime=kfDrag.t;
+},true);
+tl.addEventListener('pointerup',e=>{if(!kfDrag)return; e.stopImmediatePropagation(); kfDrag=null; tl.style.cursor='pointer'; renderKeys()},true);
+tl.addEventListener('contextmenu',e=>{const k=keyAtX(e.clientX); if(!k) return; e.preventDefault();
+  state.keys.splice(state.keys.indexOf(k),1); renderKeys(); toast('已删除关键帧')});
+
+/* ---------- camera-move templates ---------- */
+function applyTemplate(kind){
+  if(!state.clip) return;
+  const t0=vid.currentTime||0, D=clipDuration();
+  const yaw=normYaw(state.yaw), pitch=state.pitch, fov=Math.min(state.hfov,110);
+  const add=(dt,k)=>({t:Math.min(D,t0+dt),dist:0,...k});
+  let ks;
+  if(kind==='planet'){
+    // little planet -> spin -> unfold into the current framing
+    ks=[add(0,{yaw:yaw-120,pitch:-90,fov:300,dist:1}),add(1.2,{yaw:yaw-40,pitch:-90,fov:260,dist:1}),
+        add(2.6,{yaw:yaw,pitch:pitch,fov:fov,dist:0.15}),add(4.0,{yaw:yaw,pitch:pitch,fov:fov,dist:0})];
+  }else if(kind==='orbit'){
+    ks=[0,1,2,3,4].map(i=>add(i*1.5,{yaw:normYaw(yaw+i*90),pitch:pitch,fov:fov,ease:i<4?'linear':undefined}));
+  }else if(kind==='reveal'){
+    ks=[add(0,{yaw:yaw,pitch:Math.min(80,pitch+70),fov:70}),add(3,{yaw:yaw,pitch:pitch,fov:fov})];
+  }
+  ks.forEach(k=>{if(k.ease===undefined)delete k.ease});
+  state.keys=state.keys.filter(k=>k.t<t0-0.01||k.t>ks.at(-1).t+0.01).concat(ks);
+  if(state.inP==null||state.inP>t0) state.inP=t0;
+  if(state.outP==null||state.outP<ks.at(-1).t) state.outP=Math.min(D,ks.at(-1).t+1);
+  state.follow=true; $('follow').checked=true; renderKeys();
+  if(vid.src){vid.currentTime=t0; vid.play().catch(()=>{})}
+  toast({planet:'小行星开场',orbit:'环绕一周',reveal:'抬头揭幕'}[kind]+'：已生成关键帧，正在预览');
+}
+document.querySelectorAll('[data-tpl]').forEach(b=>b.onclick=()=>applyTemplate(b.dataset.tpl));
 
 /* ---------- tabs ---------- */
 function setTab(t){
