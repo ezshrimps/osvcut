@@ -255,10 +255,11 @@ class FlowStitch(SmartStitch):
     near objects stay single and continuous instead of doubling or being cut."""
 
     def __init__(self, cal, lenses, device="cuda", fband=4.5, fres=0.2, ramp=1.5, flow_ema=0.5,
-                 max_flow=4.0, center="dp", ss=1, **kw):
+                 max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, **kw):
         super().__init__(cal, lenses, device=device, **kw)
         self.do_dp = False
         self.center = center          # "overlap": ramp centred in the overlap; "dp": on the min-disagreement path
+        self.bands, self.wide_deg = int(bands), float(wide_deg)   # 2 = two-band blend (low freq. over wide_deg)
         self.fpath = None
         self.fband, self.fres, self.ramp, self.flow_ema, self.max_flow = fband, fres, ramp, flow_ema, max_flow
         a = torch.arange(0, 360, fres, device=device) * math.pi / 180
@@ -397,8 +398,43 @@ class FlowStitch(SmartStitch):
         wA = (1 - t) * mA + 1e-4 * mA + 1e-6 * torch.exp(-(oA / px_deg).clamp(max=60))
         wB = t * mB + 1e-4 * mB + 1e-6 * torch.exp(-(oB / px_deg).clamp(max=60))
         out = (cA * wA + cB * wB) / (wA + wB)
+        if getattr(self, "bands", 1) == 2:
+            # two-band blend: low frequencies cross over a wide ramp (no brightness step),
+            # high frequencies keep the narrow ramp (no ghosting)
+            out = self._two_band(cA, cB, wA, wB, mA, mB, beta, c, w, d, out)
         out = out.clamp(0, 1) ** (1 / GAMMA)
         if parts:
             n = wA + wB
             return out, cA.clamp(0, 1) ** (1 / GAMMA), cB.clamp(0, 1) ** (1 / GAMMA), wA / n, wB / n
         return out
+
+    def _two_band(self, cA, cB, wA, wB, mA, mB, beta, c, w, d, narrow):
+        # output pixels per degree, from neighbouring view rays
+        dd = (d[:, 1:] * d[:, :-1]).sum(-1).clamp(-1, 1)
+        deg_px = float(torch.rad2deg(torch.acos(dd)).median())
+        sig_full = max(1.0, (self.wide_deg / 2) / max(deg_px, 1e-4))
+        fct = max(1, int(sig_full / 3))                    # blur on a downsampled copy for speed
+        sig = max(1.0, sig_full / fct)
+        k = int(3 * sig) * 2 + 1
+        x = torch.arange(k, device=self.dev, dtype=torch.float32) - k // 2
+        g = torch.exp(-0.5 * (x / sig) ** 2); g = (g / g.sum())
+        H0, W0 = cA.shape[-2:]
+        def blur(img):                                     # (C,H,W), normalised by the validity mask
+            im = img[None]
+            if fct > 1:
+                im = F.avg_pool2d(im, fct, ceil_mode=True)
+            im = F.conv2d(F.pad(im, (k // 2, k // 2, 0, 0), mode="replicate"), g.view(1, 1, 1, k).repeat(im.shape[1], 1, 1, 1), groups=im.shape[1])
+            im = F.conv2d(F.pad(im, (0, 0, k // 2, k // 2), mode="replicate"), g.view(1, 1, k, 1).repeat(im.shape[1], 1, 1, 1), groups=im.shape[1])
+            if fct > 1:
+                im = F.interpolate(im, size=(H0, W0), mode="bilinear", align_corners=False)
+            return im[0]
+        lowA = blur(cA * mA) / (blur(mA[None])[0] + 1e-4)
+        lowB = blur(cB * mB) / (blur(mB[None])[0] + 1e-4)
+        tw = ((beta - c) / (2 * self.wide_deg) + 0.5).clamp(0, 1)
+        tw = tw * tw * (3 - 2 * tw)
+        vA, vB = (mA > 0.5).float(), (mB > 0.5).float()
+        uA = (1 - tw) * vA + 1e-4 * vA + 1e-6 * (beta < c)
+        uB = tw * vB + 1e-4 * vB + 1e-6 * (beta >= c)
+        low_wide = (lowA * uA + lowB * uB) / (uA + uB)
+        low_narrow = (lowA * wA + lowB * wB) / (wA + wB)
+        return (narrow - low_narrow + low_wide).clamp(0, 1)

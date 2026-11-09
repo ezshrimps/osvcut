@@ -205,6 +205,12 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **R.** 11.5 s 1080×1920 film rendered and joined without manual edits; look calls 0.5–1.1 s, overview 2.5 s (cached transcript), tracking 5.5 s of footage in ~9 s. Found and fixed: tracked keys must carry linear easing when consumed outside the studio.
 **C.** The tool surface (overview → look → track → render) is sufficient for an assistant to make framing decisions it can verify visually before rendering — the step that failed in the first, contact-sheet-only experiment (subject out of frame).
 
+## E23 — Two-band blending (optional)
+
+**M.** FlowStitch(bands=2): low frequencies (Gaussian, σ = 3°, computed on a downsampled copy) cross over a ±6° ramp around the seam path, high frequencies keep the ±1.5° ramp. Paired against the default on the E11 protocol (n = 100).
+**R.** CD unchanged (same contributions); edge deviation 0.0594 vs 0.0648 (79/100 frames better, p = 2.9e-6); exposure step 0.0233 vs 0.0245 (63/100, p = 0.047); fidelity −0.022 (low frequencies are mixed); edge-hard 73/100 frames better but mean +0.0003 (p = 0.016, mixed). Render overhead +2 ms after the downsampled blur (+166 ms with a full-resolution 190-tap blur).
+**C.** A small, real reduction of brightness steps and seam edge energy; kept as an option (`"seam_opts": {"bands": 2}`), not the default.
+
 ---
 
 ## Open questions / next experiments

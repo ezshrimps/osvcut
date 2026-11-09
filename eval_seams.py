@@ -47,6 +47,8 @@ def make_engine(name, cal, lenses):
         opts["center"] = "dp"
     elif name == "flow_dp_r15":
         opts.update(center="dp", ramp=1.5)
+    elif name == "flow_dp_r15_2b":
+        opts.update(center="dp", ramp=1.5, bands=2)
     elif name == "flow_dp_r15_aa":
         opts.update(center="dp", ramp=1.5, ss=2)
     return FlowStitch(cal, lenses, **opts)
