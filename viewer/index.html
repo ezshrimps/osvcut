@@ -1277,7 +1277,7 @@ async function btVote(v){
 async function btStats(){
   let s; try{s=await (await fetch('/api/blindtest/stats')).json()}catch{return}
   const wr=Object.entries(s.win_rate).filter(([,v])=>v!=null).sort((a,b)=>b[1]-a[1]).map(([m,v])=>`${BT_NAMES[m]||m} ${(v*100).toFixed(0)}%`).join(' · ');
-  $('btStat').textContent=`已评 ${s.n} 组` + (wr?` · 胜率：${wr}`:'') + '（方法名只在统计里显示，评分时看不到）';
+  $('btStat').innerHTML=`已评 <b>${s.n}</b> / 40 组 <span style="display:inline-block;width:120px;height:6px;background:var(--line);border-radius:3px;vertical-align:middle"><span style="display:block;height:6px;border-radius:3px;background:var(--accent);width:${Math.min(100,s.n/40*100)}%"></span></span>` + (s.n>=30&&wr?` · 胜率：${wr}`:' · 投满 30 组后显示结果（避免影响判断），每组约 5–10 秒');
 }
 document.querySelectorAll('.btbtns .btn').forEach(b=>b.onclick=()=>btVote(b.dataset.v));
 document.addEventListener('keydown',e=>{if(!document.body.classList.contains('bt'))return;

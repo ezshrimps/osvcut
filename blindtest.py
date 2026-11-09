@@ -20,6 +20,7 @@ VOTES = os.path.join(BT_DIR, "votes.jsonl")
 os.makedirs(BT_DIR, exist_ok=True)
 
 METHODS = ["legacy", "smart", "flow"]
+ALGO = "E50"          # seam defaults the "flow" renders use (research log); stored with every vote
 _pairs = {}
 _lock = threading.Lock()
 
@@ -123,7 +124,7 @@ def vote(pid, choice):
         p = _pairs.pop(pid, None)
     if not p or choice not in ("left", "right", "same"):
         return False
-    rec = dict(p, choice=choice, voted=time.time())
+    rec = dict(p, choice=choice, voted=time.time(), algo=ALGO)
     with open(VOTES, "a", encoding="utf8") as fh:
         fh.write(json.dumps(rec) + "\n")
     for side in ("left", "right"):
