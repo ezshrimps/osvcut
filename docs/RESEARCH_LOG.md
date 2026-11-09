@@ -299,6 +299,13 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 **R.** CD 0.0345 / 0.0346 / 0.0355 / 0.0404; edge-hard 0.0750 / 0.0743 / 0.0737 / 0.0719 (edge gains ≤ 0.003, p ≈ 0.02; CD losses up to 0.006, 40/40).
 **C.** Not adopted (option kept, default 0). The edge cost is not noise on small flows; it sits where the displacement is large, i.e. where morphing real near-field parallax inevitably stretches content. Together with E33, the flow seam's edge cost is intrinsic to morphing.
 
+## E35 — Bringing the morph to the live preview
+
+**Q.** The live shader (E20) only cuts along a tracked path; E32 showed the flow seam's gain comes from the warp. Can the shader warp too, with what it can afford (a small texture, no per-pixel flow)?
+**M.** (1) Offline: `FlowStitch(flow1d=True)` collapses the flow to one confidence-weighted (d_alpha, d_beta) per azimuth column. (2) `proxy.seam_track` now runs that engine on the proxy at 2 Hz and stores the flow seam's path plus one displacement pair per 2° bin (u8, ±4°) → rig v4; the shader half-aligns both lenses with it over ±1.5° (like the export). (3) `tools_live_eval.py` emulates the shader on proxy frames with the decoded tracks and scores it with the E11 metrics, live-cut (v3) vs live-morph (v4).
+**R.** (1) 10 clips × 4 frames: CD full flow 0.0345, per-column 0.0356, no warp 0.0471 — one displacement per column keeps ~91 % of the gain (beats the DP cut 31/40). (3) 5 clips with proxies, 40 frames: CD 0.057 → 0.050 (30/40, p = 8.7e-5), CD-hard 0.096 → 0.085 (29/39, p = 0.003); edge deviation n.s. (p ≥ 0.45). In the browser the morph changes only the pixels next to the seam.
+**C.** Adopted (rig v4). The live preview now morphs like the export, at a smaller gain (2 Hz tracks, proxy resolution).
+
 ---
 
 ## Open questions / next experiments

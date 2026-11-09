@@ -305,7 +305,7 @@ class FlowStitch(SmartStitch):
 
     def __init__(self, cal, lenses, device=None, fband=4.5, fres=0.2, ramp=1.5, flow_ema=0.5,
                  max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, conf="fb", flow="farneback",
-                 narrow="off", narrow_warp=3.0, warp=1.0, gate=0.0, **kw):
+                 narrow="off", narrow_warp=3.0, warp=1.0, gate=0.0, flow1d=False, **kw):
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         super().__init__(cal, lenses, device=device, **kw)
         self.do_dp = False
@@ -318,6 +318,7 @@ class FlowStitch(SmartStitch):
         # flow, and spread the warp over +-narrow_warp deg (the blend transition stays narrow)
         self.narrow, self.narrow_warp = narrow, float(narrow_warp)
         self.warp = float(warp)            # scale of the half-way alignment (E33: CD vs edge trade-off)
+        self.flow1d = bool(flow1d)       # E35: one displacement per azimuth column (what the live shader can use)
         self.gate = float(gate)            # E34: displacements below ~gate deg are not warped (smooth gate gate/2..gate)
         self.ov_rw = None
         self._wstrip = None
@@ -443,6 +444,10 @@ class FlowStitch(SmartStitch):
             rw = np.maximum(self.ov_w.cpu().numpy(), self.narrow_warp * nw)
             self.ov_rw = torch.tensor(rw, dtype=torch.float32, device=self.dev)
         flow = torch.tensor(flow, dtype=torch.float32, device=self.dev)
+        if self.flow1d:                 # collapse to a per-column displacement: confidence-weighted mean over the strip rows
+            w_ = torch.tensor(conf, dtype=torch.float32, device=self.dev) + 1e-3
+            col = (flow * w_[None]).sum(1, keepdim=True) / w_.sum(0, keepdim=True)[None]
+            flow = col.expand_as(flow).contiguous()
         self.flow = flow if self.flow is None else self.flow_ema * self.flow + (1 - self.flow_ema) * flow
         self.last_conf = conf
         self.last_raw = F_          # raw Farneback flow (strip pixels), for diagnostics

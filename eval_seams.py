@@ -49,6 +49,8 @@ def make_engine(name, cal, lenses):
         opts.update(center="dp", ramp=1.5)
     elif name == "flow_dp_r3":
         opts.update(center="dp", ramp=3.0)
+    elif name == "flow_dp_r15_1d":             # per-column displacement only (E35)
+        opts.update(center="dp", ramp=1.5, flow1d=True)
     elif name.startswith("flow_dp_r15_g"):         # flow gate sweep, e.g. flow_dp_r15_g020 = 0.20 deg (E34)
         opts.update(center="dp", ramp=1.5, gate=int(name[-3:]) / 100)
     elif name.startswith("flow_dp_r15_w"):         # warp strength sweep, e.g. flow_dp_r15_w050 (E33)

@@ -413,6 +413,7 @@ uniform sampler2D tex; uniform vec2 res; uniform float yaw,pitch,hfov,dist; unif
 uniform int live; uniform mat3 Mb, R0, R1; uniform vec4 k0, k1; uniform float k05, k15;
 uniform vec2 f0, f1, c0, c1; uniform sampler2D rlimTex; uniform float lensPx, thetaCut; uniform vec3 g0, g1;
 uniform int seamOn; uniform sampler2D seamTex, gainTex, gglobTex; uniform float seamRows, seamRate, vtime;
+uniform int flowOn; uniform sampler2D flowTex; uniform float flowRange;
 vec4 lensSample(int i, vec3 db){
   mat3 R = i==0 ? R0 : R1; vec4 k = i==0 ? k0 : k1; float k5 = i==0 ? k05 : k15;
   vec2 f = i==0 ? f0 : f1; vec2 c = i==0 ? c0 : c1;
@@ -447,6 +448,16 @@ vec3 scene(vec3 v){
       float bstar = (texture(seamTex, vec2(alpha, row)).r - 0.5)*9.0;
       cen = bstar;
       t = clamp((beta - bstar)/1.0 + 0.5, 0.0, 1.0); t = t*t*(3.0-2.0*t);
+      if(flowOn==1 && abs(beta) < 4.3){
+        // morph like the export seam (E35): one (d_alpha, d_beta) per azimuth, half-way alignment over +-1.5 deg
+        vec2 F = (texture(flowTex, vec2(alpha, row)).rg - 0.5)*2.0*flowRange;
+        t = clamp((beta - bstar)/3.0 + 0.5, 0.0, 1.0); t = t*t*(3.0-2.0*t);
+        float al = alpha*6.28318530718, be = radians(beta);
+        float aA = al - radians(t*F.x), bA = be - radians(t*F.y);
+        float aB = al + radians((1.0-t)*F.x), bB = be + radians((1.0-t)*F.y);
+        a = lensSample(0, vec3(cos(bA)*cos(aA), sin(bA), cos(bA)*sin(aA)));
+        b = lensSample(1, vec3(cos(bB)*cos(aB), sin(bB), cos(bB)*sin(aB)));
+      }
       vec3 lr = (texture(gainTex, vec2(alpha, row)).rgb - 0.5)*2.0;
       vec3 gmean = (texture(gglobTex, vec2(0.5, row)).rgb - 0.5)*2.0;
       vec3 l = gmean + (lr - gmean)*clamp(1.0-abs(beta)/45.0, 0.0, 1.0);
@@ -528,10 +539,11 @@ function sh(t,s){const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShade
 const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-const U={};['seamOn','seamTex','gainTex','gglobTex','seamRows','seamRate','vtime','res','yaw','pitch','hfov','dist','grid','live','Mb','R0','R1','k0','k1','k05','k15','f0','f1','c0','c1','rlimTex','lensPx','thetaCut','g0','g1','tex','nadirDeg','seamViz','gradeU'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const U={};['seamOn','seamTex','gainTex','gglobTex','seamRows','seamRate','vtime','res','yaw','pitch','hfov','dist','grid','live','Mb','R0','R1','k0','k1','k05','k15','f0','f1','c0','c1','rlimTex','lensPx','thetaCut','g0','g1','tex','nadirDeg','seamViz','gradeU','flowOn','flowTex','flowRange'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 gl.uniform1i(U.tex,0); gl.uniform1i(U.rlimTex,1); gl.uniform1i(U.live,0);
 gl.uniform1i(U.seamTex,2); gl.uniform1i(U.gainTex,3); gl.uniform1i(U.gglobTex,4); gl.uniform1i(U.seamOn,0);
-const seamT=gl.createTexture(), gainT=gl.createTexture(), gglobT=gl.createTexture();
+gl.uniform1i(U.flowTex,5); gl.uniform1i(U.flowOn,0);
+const seamT=gl.createTexture(), gainT=gl.createTexture(), gglobT=gl.createTexture(), flowT=gl.createTexture();
 function b64bytes(s){const b=atob(s), u=new Uint8Array(b.length); for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i); return u}
 function tex2d(unit,t,w,h,ifmt,fmt,data,wrapS){gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,t);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT,1); gl.texImage2D(gl.TEXTURE_2D,0,ifmt,w,h,0,fmt,gl.UNSIGNED_BYTE,data);
@@ -552,7 +564,9 @@ function setRig(r){
     for(let i=0;i<n;i++){loc.set(G.subarray(i*(gb+1)*3,i*(gb+1)*3+gb*3),i*gb*3); glo.set(G.subarray(i*(gb+1)*3+gb*3,(i+1)*(gb+1)*3),i*3)}
     tex2d(2,seamT,sm.bins,n,gl.R8,gl.RED,P,gl.REPEAT); tex2d(3,gainT,gb,n,gl.RGB8,gl.RGB,loc,gl.REPEAT); tex2d(4,gglobT,1,n,gl.RGB8,gl.RGB,glo,gl.CLAMP_TO_EDGE);
     gl.uniform1f(U.seamRows,n); gl.uniform1f(U.seamRate,sm.rate); gl.uniform1i(U.seamOn,1);
-  } else gl.uniform1i(U.seamOn,0);
+    if(sm.flow){ tex2d(5,flowT,sm.bins,n,gl.RG8,gl.RG,b64bytes(sm.flow),gl.REPEAT); gl.uniform1f(U.flowRange,sm.flow_range||4); gl.uniform1i(U.flowOn,1); }
+    else gl.uniform1i(U.flowOn,0);
+  } else {gl.uniform1i(U.seamOn,0); gl.uniform1i(U.flowOn,0);}
   const colMajor=m=>[m[0][0],m[1][0],m[2][0],m[0][1],m[1][1],m[2][1],m[0][2],m[1][2],m[2][2]];
   r.lenses.forEach((L,i)=>{
     gl.uniformMatrix3fv(U['R'+i],false,colMajor(L.R));

@@ -57,21 +57,23 @@ def transcode(src, out, lens_px, duration):
 def seam_track(proxy, cal, dur, lens_px, rate=2.0, bins=180):
     """Min-difference seam path + per-azimuth exposure field sampled at `rate` Hz from the proxy itself
     (calibration rescaled to proxy pixels), quantised to bytes.
-    path: beta* in [-4.5, 4.5] deg -> u8;  gains: log(slave/master) per 5-deg bin + global mean -> u8."""
+    path: beta* in [-4.5, 4.5] deg -> u8;  gains: log(slave/master) per 5-deg bin + global mean -> u8;
+    flow: per 2-deg bin (d_alpha, d_beta) in [-4, 4] deg -> u8 pairs (E35: one displacement per azimuth keeps
+    ~90 % of the flow seam's agreement gain, so the live shader can morph too)."""
     import base64
     import copy
     import torch
     from osvcut import Lens, yuv420_to_rgb
-    from seam import SmartStitch
+    from seam import FlowStitch
     pc = copy.deepcopy(cal)
     pc["dfl"] = cal["dfl"] * lens_px / cal["W"]
     pc["W"] = lens_px
     lenses = [Lens(pc, L) for L in pc["lenses"]]
-    eng = SmartStitch(pc, lenses)
+    eng = FlowStitch(pc, lenses, conf="photo", flow1d=True)
     p = subprocess.Popen(["ffmpeg", "-v", "error", "-i", proxy, "-vf", f"fps={rate}", "-f", "rawvideo",
                           "-pix_fmt", "yuv420p", "-"], stdout=subprocess.PIPE)
     fb = lens_px * 2 * lens_px * 3 // 2
-    rows_p, rows_g = bytearray(), bytearray()
+    rows_p, rows_g, rows_f = bytearray(), bytearray(), bytearray()
     n, total = 0, max(1, int(dur * rate))
     while True:
         raw = p.stdout.read(fb)
@@ -79,7 +81,9 @@ def seam_track(proxy, cal, dur, lens_px, rate=2.0, bins=180):
             break
         im = yuv420_to_rgb(raw, lens_px, 2 * lens_px)
         eng.update([im[None, :, :, :lens_px], im[None, :, :, lens_px:]])
-        pth = np.asarray(eng.path).reshape(bins, -1).mean(1)       # beta* per 2-deg bin
+        pth = np.asarray(eng.fpath).reshape(bins, -1).mean(1)      # beta* per 2-deg bin (flow seam's path)
+        fl = eng.flow[:, 0, :].cpu().numpy().reshape(2, bins, -1).mean(2).T   # (bins, 2): d_alpha, d_beta
+        rows_f += bytes(np.clip(np.round((np.clip(fl, -4, 4) / 4 * 0.5 + 0.5) * 255), 0, 255).astype(np.uint8).ravel())
         rows_p += bytes(np.clip(np.round((pth / 4.5 * 0.5 + 0.5) * 255), 0, 255).astype(np.uint8))
         lr = np.asarray(eng.logr)                                  # (3, 72)
         lrg = np.concatenate([lr, lr.mean(1, keepdims=True)], 1).T  # (73, 3)
@@ -89,7 +93,8 @@ def seam_track(proxy, cal, dur, lens_px, rate=2.0, bins=180):
             print(f"progress {900 + int(90 * min(1, n / total))}/1000", flush=True)
     p.wait()
     return dict(rate=rate, n=n, bins=bins, gain_bins=72,
-                path=base64.b64encode(bytes(rows_p)).decode(), gains=base64.b64encode(bytes(rows_g)).decode())
+                path=base64.b64encode(bytes(rows_p)).decode(), gains=base64.b64encode(bytes(rows_g)).decode(),
+                flow=base64.b64encode(bytes(rows_f)).decode(), flow_range=4.0)
 
 
 def rig(src, lens_px, proxy=None):
@@ -128,7 +133,7 @@ def rig(src, lens_px, proxy=None):
         M = Ms[min(np.searchsorted(ts, t), len(Ms) - 1)]
         qs.append([round(v, 5) for v in rot_to_quat(np.asarray(M))])
     seam = seam_track(proxy, cal, dur, lens_px) if proxy else None
-    return dict(version=3, lens_px=lens_px, width=2 * lens_px, height=lens_px, lenses=lenses, seam=seam,
+    return dict(version=4, lens_px=lens_px, width=2 * lens_px, height=lens_px, lenses=lenses, seam=seam,
                 gain_slave=np.exp(-lr / 2).round(4).tolist(), gain_master=np.exp(lr / 2).round(4).tolist(),
                 level_rate=15.0, level_q=qs, duration=dur, theta_cut_deg=98.0)
 
