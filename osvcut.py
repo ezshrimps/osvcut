@@ -245,6 +245,8 @@ def render(spec):
     if pending is not None: pending.result()
     if pool is not None: pool.shutdown()
     writer.close(); enc.wait(); reader.close()
+    if spec.get("spherical") and mode=="equirect":
+        import spherical; spherical.inject(spec["dst"])
     print(f"progress {total}/{total}",flush=True)
     print("rendered",i,"frames ->",spec["dst"],flush=True)
 

@@ -196,9 +196,12 @@ def _spec(clip_id, start, end, keys=None, size=(1920, 1080), fps=30, speed=1.0, 
     return s
 
 
-def render_cut(clip_id, start, end, keys=None, aspect="16:9", fps=30, speed=1.0, title=""):
+def render_cut(clip_id, start, end, keys=None, aspect="16:9", fps=30, speed=1.0, title="", projection="flat"):
     size = {"16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:5": [1080, 1350], "2.39:1": [1920, 816]}.get(aspect, [1920, 1080])
     spec = _spec(clip_id, start, end, keys, size, fps, speed)
+    if projection == "360":            # full levelled 360 video with spherical metadata (YouTube / VR)
+        spec.update(proj="equirect", size=[3840, 1920], spherical=True)
+        spec.pop("keys", None)
     j = _post("/api/jobs", dict(kind="export", spec=spec, title=title or f"AI cut {clip_id} {start:.1f}-{end:.1f}"))
     if "id" not in j:
         raise ValueError(j.get("error") or "request failed")
@@ -243,7 +246,9 @@ TOOLS = {
     "render_cut": (render_cut, "Export a flat video from one clip between start and end (clip seconds) following camera keyframes [{t, yaw, pitch, fov, dist?, ease?}] (t in clip seconds). dist 0 = normal lens, 1 = little planet.",
                    {"clip_id": {"type": "string"}, "start": {"type": "number"}, "end": {"type": "number"},
                     "keys": {"type": "array", "items": {"type": "object"}}, "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5", "2.39:1"], "default": "16:9"},
-                    "fps": {"type": "integer", "default": 30}, "speed": {"type": "number", "default": 1.0}, "title": {"type": "string"}},
+                    "fps": {"type": "integer", "default": 30}, "speed": {"type": "number", "default": 1.0}, "title": {"type": "string"},
+                    "projection": {"type": "string", "enum": ["flat", "360"], "default": "flat",
+                                   "description": "flat = reframed video following keys; 360 = full levelled 360 video (YouTube/VR), keys ignored"}},
                    ["clip_id", "start", "end"]),
     "render_sequence": (render_sequence, "Export several cuts (possibly from different clips) joined into one film. cuts = [{clip_id, start, end, keys?, speed?}].",
                         {"cuts": {"type": "array", "items": {"type": "object"}}, "title": {"type": "string"},
