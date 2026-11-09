@@ -305,7 +305,8 @@ class FlowStitch(SmartStitch):
 
     def __init__(self, cal, lenses, device=None, fband=4.5, fres=0.2, ramp=1.5, flow_ema=0.5,
                  max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, conf="fb", flow="farneback",
-                 narrow="off", narrow_warp=3.0, warp=1.0, gate=0.0, flow1d=False, **kw):
+                 narrow="off", narrow_warp=3.0, warp=1.0, gate=0.0, flow1d=False,
+                 fb_params=(3, 11, 4, 5, 1.1), **kw):
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         super().__init__(cal, lenses, device=device, **kw)
         self.do_dp = False
@@ -318,6 +319,7 @@ class FlowStitch(SmartStitch):
         # flow, and spread the warp over +-narrow_warp deg (the blend transition stays narrow)
         self.narrow, self.narrow_warp = narrow, float(narrow_warp)
         self.warp = float(warp)            # scale of the half-way alignment (E33: CD vs edge trade-off)
+        self.fb_params = tuple(fb_params)   # Farneback (levels, winsize, iterations, poly_n, poly_sigma); E37
         self.flow1d = bool(flow1d)       # E35: one displacement per azimuth column (what the live shader can use)
         self.gate = float(gate)            # E34: displacements below ~gate deg are not warped (smooth gate gate/2..gate)
         self.ov_rw = None
@@ -372,7 +374,8 @@ class FlowStitch(SmartStitch):
         self.ov_w = torch.tensor(half, dtype=torch.float32, device=self.dev)
         pad = int(20 / self.fres)                   # 20 deg circular padding in alpha
         wrap = lambda x: np.concatenate([x[:, -pad:], x, x[:, :pad]], 1)
-        fb = lambda a, b: cv2.calcOpticalFlowFarneback(a, b, None, 0.5, 3, 11, 4, 5, 1.1, 0)
+        lv, ws, it, pn, ps = self.fb_params
+        fb = lambda a, b: cv2.calcOpticalFlowFarneback(a, b, None, 0.5, lv, ws, it, pn, ps, 0)
         if self.flow_engine == "lk":
             from gpuflow import flow_lk
             fl, cf = flow_lk(torch.tensor(gA, device=self.dev, dtype=torch.float32),

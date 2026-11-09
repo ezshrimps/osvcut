@@ -49,6 +49,9 @@ def make_engine(name, cal, lenses):
         opts.update(center="dp", ramp=1.5)
     elif name == "flow_dp_r3":
         opts.update(center="dp", ramp=3.0)
+    elif name.startswith("fbp_"):                  # Farneback parameter sweep, e.g. fbp_3_15_4_5_11 (E37)
+        lv, ws, it, pn, ps = name[4:].split("_")
+        opts.update(center="dp", ramp=1.5, fb_params=(int(lv), int(ws), int(it), int(pn), int(ps) / 10))
     elif name == "flow_dp_r15_1d":             # per-column displacement only (E35)
         opts.update(center="dp", ramp=1.5, flow1d=True)
     elif name.startswith("flow_dp_r15_g"):         # flow gate sweep, e.g. flow_dp_r15_g020 = 0.20 deg (E34)

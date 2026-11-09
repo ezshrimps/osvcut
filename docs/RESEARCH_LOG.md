@@ -313,6 +313,14 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 **R.** (1) Turning the smoothing off changed little (morph 0.0504 → 0.0491). (2) Shifting by +0.25 s helped (0.0437), −0.25 s did not: ffmpeg's `fps=2` filter had been feeding the frame from about half an interval *after* each sample time, while the shader looks sample k up at k/rate. With `select='gte(t, selected_n/rate − 0.01)'` the best shift is 0 and live CD is 0.0486 (cut) / **0.0413** (morph), 31/40, p = 6e-4 — down from 0.057 for the v3 live preview.
 **C.** Fixed in `proxy.seam_track` (exact sample times, no temporal smoothing between 2 Hz samples). The live preview's remaining gap to the oracle (0.041 vs 0.0375) is quantisation, 2° bins and interpolation between samples.
 
+## E37 — Farneback parameters (no change)
+
+**M.** `FlowStitch(fb_params=(levels, winsize, iterations, poly_n, poly_sigma))`, 10 clips × 4 frames, corrected scale: winsize 7 / 11 / 15 / 21, levels 2 / 3 / 4, poly 7/1.5.
+**R.** CD 0.0351 / **0.0345** / 0.0342 / 0.0340 and edge-hard 0.0735 / **0.0750** / 0.0770 / 0.0789 for winsize 7–21; levels have no effect (the strip is 46 rows); poly 7/1.5: CD 0.0346, edge 0.0813.
+**C.** The default (3, 11, 4, 5, 1.1) sits on the CD–edge trade-off; no setting improves both. Unchanged.
+
+**Not done, needs the user:** person / face detection for subject framing. OpenCV 5 in this environment ships neither Haar cascades nor the HOG people detector, and `FaceDetectorYN` needs an ONNX model download.
+
 ---
 
 ## Open questions / next experiments
