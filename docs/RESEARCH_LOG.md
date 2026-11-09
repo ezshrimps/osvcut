@@ -193,6 +193,12 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **M.** `proxy.py` now also samples the min-difference DP seam path (2° bins) and the per-azimuth exposure field (5° bins + global) at 2 Hz from the proxy itself (calibration rescaled to proxy pixels), quantised to bytes (98 samples, 88 KB for 49 s; +3 s generation time). The shader looks both up by playback time (linear between samples) and applies a 1° cut at β*(α) with local gains, instead of a fixed ±1.5° crossfade at β = 0.
 **R.** Rendered views differ (mean |Δ| 12.8 grey levels at seam-centred views); the cut moves off near-field content (|β*| up to 2.7°). Parallax morphing remains export-only.
 
+## E21 — Anti-aliased flow strips (negative result)
+
+**M.** FlowStitch(ss=2): sample the flow strip at 0.1° and average-pool to 0.2° before Farneback (motivated by E12). Benchmark protocol of E11, n = 100, paired against the default.
+**R.** CD 0.0628 vs 0.0629 (62/100, mean −0.0001, p = 0.028); CD-hard −0.0002 (p = 0.10); edge-hard −0.0007 (p = 0.5); fidelity-hard −0.0010 (p < 0.001).
+**C.** Statistically detectable but practically nil; not adopted (default ss = 1). Aliasing matters for residual measurements (E12) but not for where the seam goes.
+
 ---
 
 ## Open questions / next experiments
