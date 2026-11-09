@@ -263,7 +263,7 @@ Consumer dual-fisheye footage can be made as scriptable as ordinary video with o
 
 \section*{Reproducibility}
 All code is available at \url{https://github.com/ezshrimps/osvcut} (Apache-2.0); every number in this paper is produced by a script in the repository and logged with its command in \texttt{docs/RESEARCH\_LOG.md}. The footage cannot be released, but the protocol runs on any folder of Osmo~360 clips:
-\begin{itemize}\itemsep0pt
+\begin{itemize}\itemsep0pt\raggedright
 \item seam benchmark (Table~\ref{tab:bench}, Fig.~\ref{fig:bench}): \texttt{eval\_seams.py --clips 20 --frames 5 --seed 0}, statistics with \texttt{analyze\_bench.py};
 \item temporal stability: \texttt{tools\_flicker.py} (single clip) and \texttt{eval\_temporal.py --clips 8 --seconds 4 --seed 1};
 \item failure analysis: \texttt{seamdiag.py} (misalignment and exposure per azimuth), \texttt{tools\_rs\_probe.py} and \texttt{tools\_rs\_model.py} (rolling shutter), \texttt{tools\_calib\_bias.py} (Fig.~\ref{fig:bias}), \texttt{tools\_ground\_probe.py} (ground plane), \texttt{tools\_flow\_residual.py} (residual after alignment);
