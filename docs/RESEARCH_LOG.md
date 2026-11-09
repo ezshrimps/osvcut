@@ -376,6 +376,12 @@ Re-runs with the final settings: 8K CD 30/30 vs the cut, hard 29/30 (p = 8e-8), 
 **R.** (1) Cut +0.004 (60 % > 0), flow −0.003 (40 % > 0): no systematic blur or extra edge, just a wider spread. (2) Bicubic: edge-hard flow 0.0427 / cut 0.0420 (bilinear 0.0433 / 0.0423), CD up for both (0.0326 / 0.0497). On this subset the two are already level on hard edges; the 100-frame gap (0.058 vs 0.043) comes from a minority of frames.
 **C.** Not resampling, not a systematic blur. Bilinear kept. The residual edge cost is frame-specific morphing of strong near-field parallax.
 
+## E47 — Looking at the frames behind the hard-edge gap
+
+**M.** The 100-frame results (E45 vs DP cut) sorted by the hard-subset edge-deviation difference; the 40° window of hard columns where the two outputs differ most, rendered side by side (`cache/debug`, not committed: the frames contain people).
+**R.** Five frames carry 42 % of the total gap; one clip (casino) appears four times in the top eight. Worst frame: a red casino carpet just below the camera — dense, repetitive texture where the flow is ambiguous; the morph softens the texture slightly, the cut shows a faint horizontal break; neither is clearly worse. Second: a face at arm's length — the cut breaks a spectacle rim at the seam, the morph keeps it continuous, yet the metric scores the morph 0.296 vs 0.141.
+**C.** In the frames that dominate the gap the morph is not visibly worse and is sometimes better; edge deviation penalises "different from the single-lens image" at near-field parallax, not visible defects. This is the limit of reference-based metrics here and what the blind study (E14) is for. Noted in the paper's limitations.
+
 ---
 
 ## Open questions / next experiments
