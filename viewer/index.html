@@ -292,6 +292,16 @@ body.bt .btview .btpair img{cursor:default}
     </div>
   </main>
   <div class="toast" id="toast"></div>
+  <div class="help" id="aeDlg"><div class="helpbox" style="min-width:360px">
+    <h3><span>✨ 一键成片 <small id="aeGrp" style="color:var(--dim);font-weight:400"></small></span><button class="btn" id="aeClose">取消</button></h3>
+    <p style="font-size:12px;color:var(--dim);margin:0 0 10px">从这一组里自动挑出说话片段（镜头对着持杆人、配字幕）和稳定的风景片段（缓慢横摇），加转场后导出。结果是初稿，可以再在剪辑台调整。</p>
+    <div class="row"><label>目标时长</label><select id="aeSecs"><option value="15">15 秒</option><option value="30" selected>30 秒</option><option value="60">1 分钟</option><option value="120">2 分钟</option></select></div>
+    <div class="row"><label>画幅</label><select id="aeAspect"><option value="16:9">横屏 16:9</option><option value="9:16">竖屏 9:16（抖音 / 小红书）</option><option value="1:1">方形 1:1</option><option value="4:5">4:5</option></select></div>
+    <div class="row"><label>转场</label><select id="aeTrans"><option value="fade" selected>淡入淡出</option><option value="fadeblack">黑场过渡</option><option value="cut">直接切</option></select></div>
+    <div class="row"><label>字幕</label><select id="aeCaps"><option value="burn" selected>烧进画面</option><option value="soft">软字幕 + .srt</option><option value="off">不加</option></select></div>
+    <div class="row"><label>背景音乐</label><span id="aeMusic" style="font-size:12px;color:var(--dim)"></span></div>
+    <div class="exportrow"><button class="btn primary" id="aeGo">开始生成</button></div>
+  </div></div>
   <div class="help" id="help"><div class="helpbox">
     <h3>快捷键 <button class="btn" id="helpClose">关闭</button></h3>
     <table>
@@ -938,13 +948,7 @@ function renderLibrary(){
     const todo=cs.filter(c=>!c.proxy&&!Object.keys(c.previews||{}).length&&c.duration>0&&!proxyJobFor(c.id));
     for(const c of todo){await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'proxy',clip:c.id})})}
     toast(`已加入 ${todo.length} 个实时预览任务`); pollJobs();});
-  $('groups').querySelectorAll('.autobtn').forEach(b=>b.onclick=async ev=>{ev.stopPropagation(); const cs=(groups.get(b.dataset.grp)||[]).filter(c=>c.lenses===2);
-    const secs=+(prompt('一键成片：目标时长（秒）', '30')||0); if(!secs) return;
-    const aspect=confirm('竖屏 9:16？（取消 = 横屏 16:9）')?'9:16':'16:9';
-    const r=await (await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({kind:'autoedit',clip_ids:cs.map(c=>c.id),seconds:secs,aspect,transition:'fade',captions:'burn',music:MUSIC||undefined,title:`${b.dataset.grp} · 一键成片`})})).json();
-    if(r.error){toast('一键成片失败：'+r.error);return}
-    toast('已开始一键成片，进度见「成片 & 任务」'); pollJobs();});
+  $('groups').querySelectorAll('.autobtn').forEach(b=>b.onclick=ev=>{ev.stopPropagation(); openAutoEdit(b.dataset.grp,(groups.get(b.dataset.grp)||[]).filter(c=>c.lenses===2));});
   $('groups').querySelectorAll('.all360').forEach(b=>b.onclick=async ev=>{ev.stopPropagation();
     const cs=(groups.get(b.dataset.grp)||[]).filter(c=>c.lenses===2&&c.duration>0);
     const tot=cs.reduce((a,c)=>a+c.duration,0);
@@ -1421,10 +1425,22 @@ $('holderFollow').onclick=async()=>{
 
 /* ---------- help ---------- */
 $('helpBtn').onclick=()=>$('help').classList.add('on');
+/* ---------- one-click edit dialog ---------- */
+let AE=null;
+function openAutoEdit(grp,cs){AE={grp,cs}; $('aeGrp').textContent=`${grp} · ${cs.length} 段`; $('aeMusic').textContent=MUSIC?`使用剪辑台里选的「${MUSIC.name}」`:'无（可在「成片 & 任务」→ 剪辑台里选择）'; $('aeDlg').classList.add('on')}
+$('aeClose').onclick=()=>$('aeDlg').classList.remove('on');
+$('aeDlg').onclick=e=>{if(e.target.id==='aeDlg')$('aeDlg').classList.remove('on')};
+$('aeGo').onclick=async()=>{ if(!AE) return; $('aeGo').disabled=true;
+  try{ const r=await (await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({kind:'autoedit',clip_ids:AE.cs.map(c=>c.id),seconds:+$('aeSecs').value,aspect:$('aeAspect').value,transition:$('aeTrans').value,
+        captions:$('aeCaps').value,music:MUSIC||undefined,title:`${AE.grp} · 一键成片`})})).json();
+    if(r.error){toast('一键成片失败：'+r.error);return}
+    $('aeDlg').classList.remove('on'); toast('已开始一键成片，进度见「成片 & 任务」'); pollJobs();
+  } finally { $('aeGo').disabled=false; } };
 $('helpClose').onclick=()=>$('help').classList.remove('on');
 $('help').onclick=e=>{if(e.target.id==='help')$('help').classList.remove('on')};
 document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
-  if(e.key==='?'){$('help').classList.toggle('on')} else if(e.key==='Escape'){$('help').classList.remove('on')}});
+  if(e.key==='?'){$('help').classList.toggle('on')} else if(e.key==='Escape'){$('help').classList.remove('on');$('aeDlg').classList.remove('on')}});
 
 /* ---------- tabs ---------- */
 function setTab(t){
