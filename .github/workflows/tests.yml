@@ -12,5 +12,6 @@ jobs:
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch
           pip install numpy opencv-python-headless
+          sudo apt-get install -y ffmpeg >/dev/null || true
       - name: Unit tests (no footage needed)
         run: python tests/test_core.py

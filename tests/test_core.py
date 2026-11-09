@@ -153,6 +153,29 @@ def test_yuv420_to_rgb_grey_and_primaries():
     assert red[0] > 0.95 and red[1] < 0.05 and red[2] < 0.05
 
 
+# ---------------------------------------------------------------- spherical metadata
+def test_spherical_injection_both_layouts():
+    import shutil, subprocess, tempfile
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        print("     (skipped: ffmpeg not found)")
+        return
+    from spherical import inject
+    d = tempfile.mkdtemp()
+    src = os.path.join(d, "a.mp4"); fast = os.path.join(d, "b.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=256x128:rate=10:duration=1",
+                    "-c:v", "libx264", src], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", src, "-c", "copy", "-movflags", "+faststart", fast], check=True)
+    for f in (src, fast):
+        inject(f)
+        inject(f)                                           # idempotent
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream_side_data=projection",
+                              "-of", "csv=p=0", f], capture_output=True, text=True).stdout
+        assert "equirectangular" in out, out
+        n = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v", "-show_entries",
+                            "stream=nb_read_frames", "-of", "csv=p=0", f], capture_output=True, text=True).stdout
+        assert n.strip().rstrip(",") == "10", n
+
+
 # ---------------------------------------------------------------- runner
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
