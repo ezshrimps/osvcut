@@ -257,7 +257,8 @@ class FlowStitch(SmartStitch):
     near objects stay single and continuous instead of doubling or being cut."""
 
     def __init__(self, cal, lenses, device=None, fband=4.5, fres=0.2, ramp=1.5, flow_ema=0.5,
-                 max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, conf="fb", flow="farneback", **kw):
+                 max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, conf="fb", flow="farneback",
+                 narrow="off", narrow_warp=3.0, **kw):
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         super().__init__(cal, lenses, device=device, **kw)
         self.do_dp = False
@@ -266,6 +267,11 @@ class FlowStitch(SmartStitch):
         self.flow_engine = flow        # "farneback" (CPU) or "lk" (GPU pyramidal Lucas-Kanade, gpuflow.py)
         self.conf_mode = conf          # "fb": forward-backward consistency (2 flows); "photo": residual after warping (1 flow)   # 2 = two-band blend (low freq. over wide_deg)
         self.fpath = None
+        # narrow-overlap sector (E30): measure the across-seam disparity with a wide correlation search instead of
+        # flow, and spread the warp over +-narrow_warp deg (the blend transition stays narrow)
+        self.narrow, self.narrow_warp = narrow, float(narrow_warp)
+        self.ov_rw = None
+        self._wstrip = None
         self.fband, self.fres, self.ramp, self.flow_ema, self.max_flow = fband, fres, ramp, flow_ema, max_flow
         a = torch.arange(0, 360, fres, device=device) * math.pi / 180
         b = torch.arange(fband, -fband - 1e-6, -fres, device=device) * math.pi / 180
@@ -376,10 +382,70 @@ class FlowStitch(SmartStitch):
             self.ov_w = torch.tensor(_circ_smooth(w, 5), dtype=torch.float32, device=self.dev)
             half = w
         flow *= np.minimum(1.0, half / self.ramp)[None, None, :]      # narrow transition -> gentler warp
+        if self.narrow == "search":
+            width = hi - lo
+            nw = np.clip((2.5 - width) / 1.5, 0, 1)                    # 1 where the overlap is < 1 deg
+            if nw.any():
+                prior, pc = self._narrow_disparity(imgs)
+                nw = _circ_smooth(nw * pc, 5)
+                fb_ = np.maximum(prior, -0.2)                         # gap side: there is nothing to sample
+                flow[1] = flow[1] * (1 - nw)[None, :] + fb_[None, :] * nw[None, :]
+                flow[0] = flow[0] * (1 - nw)[None, :]
+            rw = np.maximum(self.ov_w.cpu().numpy(), self.narrow_warp * nw)
+            self.ov_rw = torch.tensor(rw, dtype=torch.float32, device=self.dev)
         flow = torch.tensor(flow, dtype=torch.float32, device=self.dev)
         self.flow = flow if self.flow is None else self.flow_ema * self.flow + (1 - self.flow_ema) * flow
         self.last_conf = conf
         self.last_raw = F_          # raw Farneback flow (strip pixels), for diagnostics
+
+    def _narrow_disparity(self, imgs):
+        """Per azimuth column (fres grid): across-seam disparity (deg, A(p) ~ B(p + d)) from a ZNCC search of
+        band-passed luma, lens A on [-5, 0.6] deg against lens B shifted by -1..4 deg; plus a 0/1 confidence."""
+        res, bb = self.fres, 8.0
+        if self._wstrip is None:
+            a = torch.arange(0, 360, res, device=self.dev) * math.pi / 180
+            b = torch.arange(bb, -bb - 1e-6, -res, device=self.dev) * math.pi / 180
+            B, A = torch.meshgrid(b, a, indexing="ij")
+            self._wstrip = torch.stack([torch.cos(B) * torch.cos(A), torch.sin(B), torch.cos(B) * torch.sin(A)], -1)
+            self._wbetas = bb - torch.arange(self._wstrip.shape[0], device=self.dev) * res
+        D, betas = self._wstrip, self._wbetas
+        Y = lambda c: (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]).clamp(0, 1) ** (1 / GAMMA)
+        cA, mA = self._sample(0, imgs[0], D)
+        cB, mB = self._sample(1, imgs[1], D)
+        vA, vB = (mA > .5).float(), (mB > .5).float()
+
+        def blur(Z, sg):
+            r = int(3 * sg)
+            g = torch.exp(-torch.arange(-r, r + 1, device=self.dev).float() ** 2 / (2 * sg ** 2)); g = g / g.sum()
+            Z = F.conv2d(Z[None, None], g.view(1, 1, -1, 1), padding=(r, 0))
+            return F.conv2d(Z, g.view(1, 1, 1, -1), padding=(0, r))[0, 0]
+        bp = lambda X, V: blur(X * V, 1.5) / blur(V, 1.5).clamp(min=1e-3) - blur(X * V, 8.0) / blur(V, 8.0).clamp(min=1e-3)
+        A, B = bp(Y(cA), vA), bp(Y(cB), vB)
+        band = ((betas <= 0.6) & (betas >= getattr(self, 'narrow_band', -5.0))).float()[:, None]
+        k = int(3 / res)
+
+        def box(x):
+            x = torch.cat([x[-k:], x, x[:k]]); c = torch.cumsum(torch.cat([x[:1] * 0, x]), 0)
+            return c[2 * k + 1:] - c[:-2 * k - 1]
+        shifts = np.arange(-1.0, 4.01, res)
+        S = []
+        for sh in shifts:
+            r = int(round(sh / res))
+            Bs, vBs = torch.roll(B, r, 0), torch.roll(vB, r, 0)
+            if r > 0: vBs[:r] = 0
+            elif r < 0: vBs[r:] = 0
+            m = vA * vBs * band
+            n = box(m.sum(0)).clamp(min=1)
+            sa, sb = box((m * A).sum(0)), box((m * Bs).sum(0))
+            z = (box((m * A * Bs).sum(0)) - sa * sb / n) / ((box((m * A * A).sum(0)) - sa * sa / n) *
+                                                            (box((m * Bs * Bs).sum(0)) - sb * sb / n)).clamp(min=1e-8).sqrt()
+            S.append(torch.where(n > 240, z, torch.full_like(z, -1)))
+        S = torch.stack(S)
+        zb, ib = S.max(0)
+        d = torch.tensor(shifts, device=self.dev, dtype=torch.float32)[ib]
+        ok = (zb > 0.5).float()
+        num = _circ_smooth((d * ok).cpu().numpy(), 3 / res); den = _circ_smooth(ok.cpu().numpy(), 3 / res)
+        return num / np.maximum(den, 1e-3), np.clip(den / 0.3, 0, 1)
 
     def _dirs(self, alpha_deg, beta_deg):
         a, b = torch.deg2rad(alpha_deg), torch.deg2rad(beta_deg)
@@ -402,8 +468,13 @@ class FlowStitch(SmartStitch):
         Fs = F.grid_sample(self.flow[None], torch.stack([gx, gy], -1)[None], align_corners=False,
                            padding_mode="zeros")[0] * inb
         fa, fb = Fs[0], Fs[1]
-        dA = torch.where(inb[..., None], self._dirs(alpha - t * fa, beta - t * fb), d)
-        dB = torch.where(inb[..., None], self._dirs(alpha + (1 - t) * fa, beta + (1 - t) * fb), d)
+        tw = t
+        if self.ov_rw is not None:                                  # wider warp ramp in the narrow sector
+            rw = _circ_interp(self.ov_rw, col)
+            tw = ((beta - c) / (2 * rw) + 0.5).clamp(0, 1)
+            tw = tw * tw * (3 - 2 * tw)
+        dA = torch.where(inb[..., None], self._dirs(alpha - tw * fa, beta - tw * fb), d)
+        dB = torch.where(inb[..., None], self._dirs(alpha + (1 - tw) * fa, beta + (1 - tw) * fb), d)
         logr = torch.tensor(self.logr, dtype=torch.float32, device=self.dev)
         g = logr.mean(1)[:, None, None]
         local = _circ_interp(logr, (alpha / 360 * self.nb - 0.5) % self.nb) - g
@@ -413,6 +484,7 @@ class FlowStitch(SmartStitch):
         oA = self._tls.over
         cB, mB = self._sample(1, imgs[1], dB)
         oB = self._tls.over
+        self._tls.masks = (mA, mB)                                  # for diagnostics (eval_narrow.py)
         cA = cA * torch.exp(-lr / 2)
         cB = cB * torch.exp(lr / 2)
         px_deg = self.lenses[0].fx * self.lenses[0].s * math.pi / 180

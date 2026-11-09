@@ -265,6 +265,13 @@ vs DP cut: CD 89/100 (p = 3.6e-17), CD-hard 92/100; the cut keeps crisper edges 
 Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens reference flow −0.050 [−0.168, +0.013], DP cut −0.033 [−0.129, +0.041] (2/8 above the reference each), feathered −0.211.
 **Superseded:** the numbers in E3 (misalignment), E5 (DIS "bias"), E11, E12, E19, E23–E25 and E27 were measured with the wrong scale.
 
+## E30 — A correlation prior for the narrow-overlap sector (negative result)
+
+**Q.** With the corrected scale, the wide correlation search (E29) still finds +0.5–1° (up to 2°) of across-seam disparity in the handle-side sector (α ≈ 220–320°, overlap < 2.5°), where the flow is near zero because the overlap is too narrow to measure it and the warp is scaled down by the narrow ramp. Positive disparity means duplicated content, which both lenses could remove by sampling *inside* their own valid areas. Does using the search as the across-seam flow there, with the warp spread over ±3° (blend transition kept narrow), align the sector better?
+**M.** `FlowStitch(narrow="search")`: per azimuth, ZNCC search of band-passed luma (A on [−5, 0.6]°, B shifted −1…4°), smoothed by normalised convolution; weight 1 where the raw overlap is < 1°, 0 above 2.5°; negative (gap) values clamped to −0.2°; warp ramp max(w, 3°·weight). Evaluation (`eval_narrow.py`): mean |Y(pA) − Y(pB)| of the two warped contributions on textured pixels in the narrow sector where both warped samples are valid for both engines (the same pixels for both) — photometric, independent of the search. 12 random 4K clips × 3 frames.
+**R.** off 0.0925 vs search 0.0984, better in 13/36 frames (p = 0.12); with the search band narrowed to [−2, 0.6]°: 0.1014, 13/36 (p = 0.06).
+**C.** Not adopted (option kept, default off). The disparity measured a few degrees away from the seam is not the disparity *at* the 1° overlap (near ground and the holder's body change distance quickly with elevation), and a wide warp moves content that was already acceptable. In this sector, with the right geometry, the existing flow seam is as good as this prior can make it; the residual is real near-field parallax with too little shared view to fix from one frame.
+
 ---
 
 ## Open questions / next experiments
