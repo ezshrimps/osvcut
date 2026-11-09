@@ -21,7 +21,10 @@ DJI Studio (and plug-ins such as OpenOSV) are GUI-first. To let an AI edit 360 f
 | Seam engine (`seam.py`) | Lens-validity masks (image circle + body/handle occlusion arc + frame edges), per-azimuth exposure/colour compensation in linear light, **optical-flow morphing across an overlap-adaptive transition** (default) or min-difference DP seam |
 | Stabilisation | Horizon levelling from the IMU (empirically derived IMU→body axis map) + smoothed heading |
 | Reframing | Virtual camera keyframes (yaw / pitch / fov, smoothstep easing) → 16:9 / 9:16 / 1:1 MP4 via NVENC |
-| Studio (`server.py` + `viewer/`) | Library of every OSV under a folder with stitched panorama thumbnails, one-click preview generation, WebGL 360 viewer (perspective / little-planet / crystal-ball), minimap with view footprint, horizon grid, keyframe editor, export queue with progress |
+| Studio (`server.py` + `viewer/`) | Library of every OSV under a folder with stitched, levelled panorama thumbnails; one-click preview generation (3 quality presets) with progress; WebGL 360 viewer (perspective / wide / little-planet / crystal-ball), minimap with view footprint, horizon grid, A/B seam comparison |
+| Timeline | IMU motion curve, shake markers, speech segments (faster-whisper transcript, clickable), keyframes, in/out points (`I` / `O`) |
+| Subject follow | Shift+drag a box around a person → GPU-rendered tracking views + OpenCV MIL tracker with automatic re-aiming → dense linear keyframes, previewed live and exportable |
+| Export | Keyframed yaw / pitch / fov / distortion (little planet etc.) to 16:9 / 9:16 / 1:1 MP4 through a job queue |
 | Metrics | `tools_flicker.py` – seam flicker vs. a single-lens no-seam reference; `seamdiag.py` – per-azimuth misalignment and exposure ratio along the seam |
 
 ## Quick start
@@ -65,6 +68,8 @@ Example spec:
 | `osvcut.py` | Renderer: spec → MP4 |
 | `sheet.py` | AI-readable panorama contact sheets |
 | `library.py`, `server.py`, `serve.py` | Library index, thumbnails, job queue, HTTP API |
+| `analysis.py` | Motion curve + transcripts (cached) |
+| `track.py` | Subject follow → camera keyframes |
 | `viewer/index.html` | Browser studio (single file, WebGL2) |
 | `bezel.py`, `seamdiag.py`, `compare_seam.py`, `tools_*.py` | Research / diagnostics |
 | `REPORT.md` | Research notes (Chinese) |

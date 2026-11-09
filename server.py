@@ -23,9 +23,10 @@ import library as libmod                # noqa: E402
 import analysis                         # noqa: E402
 
 PREVIEWS = os.path.join(HERE, "cache", "previews")
+TRACKS = os.path.join(HERE, "cache", "tracks")
 EXPORTS = os.path.join(HERE, "exports")
 SPECS = os.path.join(HERE, "cache", "jobspecs")
-for d in (PREVIEWS, EXPORTS, SPECS):
+for d in (PREVIEWS, EXPORTS, SPECS, TRACKS):
     os.makedirs(d, exist_ok=True)
 
 PREVIEW_PRESETS = {
@@ -257,6 +258,20 @@ class Handler(RangeHandler):
                 job = new_job("export", title, spec, cid)
                 return self._json({k: v for k, v in job.items() if not k.startswith("_")})
             return self._json({"error": "unknown kind"}, 400)
+        if p == "/api/track":
+            b = self._body()
+            src = b.get("src", "")
+            if not src or not os.path.exists(src):
+                return self._json({"error": "source not found"}, 400)
+            jid = uuid.uuid4().hex[:10]
+            out = os.path.join(TRACKS, jid + ".json")
+            job_spec = {k: b[k] for k in ("t0", "t1", "yaw", "pitch", "box_w", "box_h", "fov") if k in b}
+            job_spec.update(src=src, out=out, fps=15)
+            spec_path = os.path.join(SPECS, "track_" + jid + ".json")
+            json.dump(job_spec, open(spec_path, "w", encoding="utf8"), ensure_ascii=False)
+            job = new_job("track", f"{os.path.basename(src)} · 跟随主体 {b.get('t0', 0):.1f}s→{b.get('t1', 0):.1f}s", None,
+                          libmod.clip_id(src), cmd=[sys.executable, "-u", "track.py", spec_path], output=out)
+            return self._json({k: v for k, v in job.items() if not k.startswith("_")})
         m = re.match(r"^/api/jobs/([0-9a-f]+)/cancel$", p)
         if m:
             j = JOBS.get(m.group(1))

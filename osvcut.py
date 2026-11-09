@@ -34,6 +34,15 @@ def body_frames(ts,qs,smooth_s=1.0,mode="level"):
         Ms.append(np.stack([x,y,z],1))
     return np.array(Ms)
 
+_LVL={}
+def level_frames(f,stabilize="level",smooth=1.0):
+    """Stabilisation frames for the WHOLE clip (cached), so a time maps to the same camera
+    orientation in previews, exports and tracking regardless of the requested range."""
+    key=(f,stabilize,float(smooth))
+    if key not in _LVL:
+        ts,qs=attitudes(f,-1,1e12); _LVL[key]=(ts,body_frames(ts,qs,smooth,stabilize))
+    return _LVL[key]
+
 class Lens:
     def __init__(self,cal,L):
         self.R=torch.tensor(qmat(L["q"]),dtype=torch.float32,device=dev)
@@ -87,7 +96,8 @@ def interp_kf(kfs,t):
     if t<=kfs[0]["t"]: return kfs[0]
     for a,b in zip(kfs,kfs[1:]):
         if t<=b["t"]:
-            s=(t-a["t"])/(b["t"]-a["t"]); s=s*s*(3-2*s)
+            s=(t-a["t"])/(b["t"]-a["t"])
+            if a.get("ease")!="linear": s=s*s*(3-2*s)
             dy=((b["yaw"]-a["yaw"]+180)%360)-180
             return dict(yaw=a["yaw"]+dy*s,pitch=a["pitch"]+(b["pitch"]-a["pitch"])*s,fov=a["fov"]+(b["fov"]-a["fov"])*s,
                         dist=a.get("dist",0)+(b.get("dist",0)-a.get("dist",0))*s)
@@ -100,7 +110,7 @@ def render(spec):
     mode_seam=spec.get("seam","flow")
     smart=mode_seam!="legacy"
     eng=(FlowStitch if mode_seam=="flow" else SmartStitch)(cal,lenses,**spec.get("seam_opts",{})) if smart else None
-    ts,qs=attitudes(f,t0,t1); Ms=body_frames(ts,qs,spec.get("smooth",1.0),spec.get("stabilize","level"))
+    ts,Ms=level_frames(f,spec.get("stabilize","level"),spec.get("smooth",1.0))
     kfs=spec.get("keys",[{"t":0,"yaw":0,"pitch":0,"fov":100}])
     srcfps=float(eval(subprocess.run(["ffprobe","-v","error","-select_streams","v:0","-show_entries","stream=r_frame_rate","-of","csv=p=0",f],capture_output=True,text=True).stdout.strip().split("\n")[0]))
     step=max(1,round(srcfps/fps)); fps_out=srcfps/step

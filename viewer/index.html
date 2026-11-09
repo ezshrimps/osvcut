@@ -170,7 +170,7 @@ body.lib .libview{display:block}
   <header>
     <h1><span>osv</span>cut studio</h1>
     <div class="tabs"><button id="tabLib">素材库</button><button id="tab360" class="on">360° 查看</button><button id="tabFlat">成片 &amp; 任务 <span id="jobdot"></span></button></div>
-    <div class="hint">拖动转视角 · 滚轮缩放 · <kbd>空格</kbd> 播放 · <kbd>←</kbd><kbd>→</kbd> ±1s · <kbd>K</kbd> 关键帧 · <kbd>I</kbd>/<kbd>O</kbd> 入出点 · <kbd>B</kbd> 新/旧拼接</div>
+    <div class="hint">拖动转视角 · 滚轮缩放 · <kbd>空格</kbd> 播放 · <kbd>←</kbd><kbd>→</kbd> ±1s · <kbd>K</kbd> 关键帧 · <kbd>Shift</kbd>+拖框 跟随 · <kbd>I</kbd>/<kbd>O</kbd> 入出点 · <kbd>B</kbd> 新/旧拼接</div>
   </header>
 
   <main>
@@ -275,7 +275,7 @@ body.lib .libview{display:block}
       </div>
       <label class="check"><input type="checkbox" id="follow"> 播放时按关键帧运镜（预览成片）</label>
       <div class="kflist" id="kflist"></div>
-      <div class="empty" id="kfempty">还没有关键帧。转到想要的视角，按 K 记录。</div>
+      <div class="empty" id="kfempty">还没有关键帧。转到想要的视角按 K 记录；或在画面上 <kbd>Shift</kbd>+拖框选中一个人，自动跟随。</div>
       <textarea id="spec" readonly spellcheck="false"></textarea>
       <div class="warn" id="specwarn"></div>
       <div class="btns" style="margin-top:8px"><button class="btn" id="copyspec">复制 spec JSON</button></div>
@@ -373,7 +373,7 @@ function interpKeys(t){
   const ks=[...state.keys].sort((a,b)=>a.t-b.t); if(!ks.length) return null;
   if(t<=ks[0].t) return ks[0];
   for(let i=0;i<ks.length-1;i++){const a=ks[i],b=ks[i+1];
-    if(t<=b.t){let s=(t-a.t)/(b.t-a.t||1);s=s*s*(3-2*s);
+    if(t<=b.t){let s=(t-a.t)/(b.t-a.t||1);if(a.ease!=='linear')s=s*s*(3-2*s);
       const dy=((b.yaw-a.yaw+540)%360)-180;
       return {yaw:a.yaw+dy*s,pitch:a.pitch+(b.pitch-a.pitch)*s,fov:a.fov+(b.fov-a.fov)*s,dist:(a.dist||0)+((b.dist||0)-(a.dist||0))*s};}}
   return ks[ks.length-1];
@@ -398,7 +398,7 @@ function writeSpec(){
   let tin=ks.length?Math.max(0,ks[0].t):0, tout=ks.length?Math.min(vid.duration||ks.at(-1).t+1,ks.at(-1).t+1):(vid.duration||0);
   if(state.inP!=null) tin=state.inP; if(state.outP!=null) tout=state.outP;
   const spec={src:c.src,in:r2(c.in+tin),out:r2(c.in+tout),proj:'flat',size,fps:50,
-    keys:ks.map(k=>Object.assign({t:r2(Math.max(0,k.t-tin)),yaw:r1(k.yaw),pitch:r1(k.pitch),fov:r1(k.fov)},k.dist>0.001?{dist:r2(k.dist)}:{})),dst:`samples/${c.id}_cut.mp4`};
+    keys:ks.map(k=>Object.assign({t:r2(Math.max(0,k.t-tin)),yaw:r1(k.yaw),pitch:r1(k.pitch),fov:r1(k.fov)},k.dist>0.001?{dist:r2(k.dist)}:{},k.ease?{ease:k.ease}:{})),dst:`samples/${c.id}_cut.mp4`};
   $('spec').value=JSON.stringify(spec,null,1).replace(/\n\s+(?=[\d\-\]}])/g,' ').replace(/\{\n\s+/g,'{');
   $('specwarn').textContent=ks.some(k=>k.fov>150&&!(k.dist>0.3))?'提示：直线投影下 fov>150° 边缘拉伸严重，可调大「畸变」或用超广角/小行星预设。':'';
 }
@@ -636,6 +636,7 @@ async function pollJobs(){
     if(p&&p.status!=='done'&&j.status==='done'){
       toast(`完成：${j.title}`);
       if(j.kind==='preview'){await loadLibrary();if(state.clip?.id===j.clip&&!state.clip.file){const c=LIB.clips.find(x=>x.id===j.clip);if(c)loadClip(libToClip(c))}}
+      else if(j.kind==='track') applyTrack(j);
       else loadExports();
     }}
   if(state.clip?.lib&&!state.clip.file) showGen(state.clip);
@@ -747,6 +748,60 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='o'||e.key==='O'){state.outP=vid.currentTime; if(state.inP!=null&&state.inP>=state.outP)state.inP=null; writeSpec(); toast('出点 '+fmtDur(state.outP))}
   else if(e.key==='x'||e.key==='X'){state.inP=state.outP=null; writeSpec(); toast('已清除入/出点')}
 });
+
+/* ---------- follow a subject: Shift+drag a box on the picture ---------- */
+const selBox=document.createElement('div');
+selBox.style.cssText='position:absolute;border:2px dashed #4fc3d9;background:rgba(79,195,217,.12);pointer-events:none;display:none;border-radius:3px';
+$('stage').appendChild(selBox);
+let sel=null;
+function canvasPx(e){const r=canvas.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top,r}}
+function rayAtCss(x,y,r){const dpr=canvas.width/r.width;return rayFromPixel((x-r.width/2)*dpr,-(y-r.height/2)*dpr,canvas.width,canvas.height)}
+function angBetween(a,b){ // great-circle distance between [lon,lat] pairs, degrees
+  const v=([lo,la])=>[Math.cos(la)*Math.sin(lo),Math.cos(la)*Math.cos(lo),Math.sin(la)];
+  const p=v(a),q=v(b);return Math.acos(Math.max(-1,Math.min(1,p[0]*q[0]+p[1]*q[1]+p[2]*q[2])))*R2D}
+canvas.addEventListener('pointerdown',e=>{
+  if(!e.shiftKey) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  if(!vid.src){toast('先生成预览，才能在视频里跟随主体');return}
+  vid.pause(); const p=canvasPx(e); sel={x0:p.x,y0:p.y,x1:p.x,y1:p.y,r:p.r}; try{canvas.setPointerCapture(e.pointerId)}catch{}
+},true);
+canvas.addEventListener('pointermove',e=>{
+  if(!sel) return; e.stopImmediatePropagation();
+  const p=canvasPx(e); sel.x1=p.x; sel.y1=p.y;
+  const cr=canvas.getBoundingClientRect(), sr=$('stage').getBoundingClientRect();
+  selBox.style.display='block';
+  selBox.style.left=(cr.left-sr.left+Math.min(sel.x0,sel.x1))+'px'; selBox.style.top=(cr.top-sr.top+Math.min(sel.y0,sel.y1))+'px';
+  selBox.style.width=Math.abs(sel.x1-sel.x0)+'px'; selBox.style.height=Math.abs(sel.y1-sel.y0)+'px';
+},true);
+canvas.addEventListener('pointerup',async e=>{
+  if(!sel) return; e.stopImmediatePropagation();
+  const s=sel; sel=null; selBox.style.display='none';
+  const x0=Math.min(s.x0,s.x1),x1=Math.max(s.x0,s.x1),y0=Math.min(s.y0,s.y1),y1=Math.max(s.y0,s.y1);
+  if(x1-x0<8||y1-y0<8){toast('框太小了，按住 Shift 拖出一个框住主体的矩形');return}
+  const cx=(x0+x1)/2,cy=(y0+y1)/2;
+  const c=rayAtCss(cx,cy,s.r), l=rayAtCss(x0,cy,s.r), rr=rayAtCss(x1,cy,s.r), t=rayAtCss(cx,y0,s.r), b=rayAtCss(cx,y1,s.r);
+  if(!c||!l||!rr||!t||!b){toast('框超出了画面范围');return}
+  const t0=vid.currentTime, D=clipDuration();
+  const t1=(state.outP!=null&&state.outP>t0+0.5)?state.outP:Math.min(D,t0+15);
+  const body={src:state.clip.src,t0:+t0.toFixed(3),t1:+t1.toFixed(3),yaw:normYaw(c[0]*R2D),pitch:c[1]*R2D,
+              box_w:angBetween(l,rr),box_h:angBetween(t,b),fov:Math.min(state.hfov,120)};
+  const r=await fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json(); if(j.error){toast('跟随失败：'+j.error);return}
+  pendingTrack={job:j.id,clip:state.clip.id,dist:state.dist};
+  toast(`正在跟随主体 ${fmtDur(t0)} → ${fmtDur(t1)} …`,4000); pollJobs();
+},true);
+let pendingTrack=null;
+async function applyTrack(j){
+  if(!pendingTrack||pendingTrack.job!==j.id||state.clip?.id!==pendingTrack.clip) return;
+  let res; try{res=await (await fetch(j.output,{cache:'no-store'})).json()}catch{toast('读取跟随结果失败');return}
+  if(!res.keys.length){toast('没有跟上目标，换个更清晰的框再试');return}
+  const d=pendingTrack.dist; pendingTrack=null;
+  state.keys=res.keys.map((k,i,a)=>Object.assign({t:k.t,yaw:k.yaw,pitch:k.pitch,fov:k.fov,dist:d},i<a.length-1?{ease:'linear'}:{}));
+  state.inP=res.keys[0].t; state.outP=res.lost_at??res.keys.at(-1).t;
+  state.follow=true; $('follow').checked=true; renderKeys();
+  vid.currentTime=state.inP; vid.play().catch(()=>{});
+  toast(res.lost_at?`跟随到 ${fmtDur(res.lost_at)} 时丢失目标，已截取到这里`:`跟随完成：${res.keys.length} 个关键帧，已开启运镜预览`,4000);
+}
 
 /* ---------- tabs ---------- */
 function setTab(t){
