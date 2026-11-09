@@ -436,7 +436,7 @@ E41 re-run: ratio 0.74 → 0.52 (0.46 top bin), flow seam ≤ 0.041 in every bin
 
 **M.** `proxy.py` publishes the transcoded proxy and a rig without the seam track first, then computes the seam / flow track and replaces the rig; the studio picks up the stage-1 rig while the job runs and swaps in the full rig when it finishes.
 **R.** 67-s clip: viewable after 20 s (was 66 s, the whole job); 44-s clip in the studio: live at 15 s with the fixed seam, full flow seam at 44 s.
-**C.** Adopted.
+**C.** Adopted. Where the remaining 20 s go: the GPU transcode runs at ≈ 4.8× real time (20 s of footage in 4.2 s, decode-bound: both 100-fps HEVC streams are decoded fully; `-skip_frame nonref` cannot be combined with the CUDA filter graph), and the stage-1 rig takes 4.2 s, about 2 s of it Python/torch imports and 1.5 s ffmpeg frame grabs. Little left to gain without restructuring.
 
 ---
 
