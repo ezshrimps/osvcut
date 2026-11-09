@@ -426,6 +426,12 @@ E41 re-run: ratio 0.74 → 0.52 (0.46 top bin), flow seam ≤ 0.041 in every bin
 **R.** CD identical by construction; edge 0.041 vs 0.030 (12/40 better, p = 0.008), edge-hard 0.057 vs 0.041 (p = 0.03), step 0.0111 vs 0.0091 (9/40, p = 0.001), fidelity-hard −0.025 (0/40).
 **C.** Under E23's settings two-band blending smoothed edges and steps; with the final seam it is worse on every metric — its wide low-frequency crossfade had been masking defects that are now fixed at the source. Kept as an option, off.
 
+## E55 — Flow attenuation where the ramp is narrow (kept)
+
+**M.** E6 scales the flow by min(1, half-width / ramp) where the overlap forces a narrow transition. `atten=False` vs default with the final settings, 10 clips × 4 frames.
+**R.** Without attenuation: CD 0.0264 vs 0.0272 (40/40), CD-hard 0.0367 vs 0.0388 (35/40), but edge 0.032 vs 0.030 (10/40 better, p = 4e-4), edge-hard 0.044 vs 0.041 (p = 0.04), fidelity −0.002.
+**C.** The usual morph trade (agreement for edge energy), now at the narrow-overlap columns; attenuation kept because edges are what viewers see.
+
 ---
 
 ## Open questions / next experiments

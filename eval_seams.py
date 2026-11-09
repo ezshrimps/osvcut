@@ -49,6 +49,8 @@ def make_engine(name, cal, lenses):
         opts.update(center="dp", ramp=1.5)
     elif name == "final_2b":                       # two-band blend with the final defaults (E54)
         opts.update(center="dp", bands=2)
+    elif name == "final_noatten":                  # no flow attenuation where the ramp is narrow (E55)
+        opts.update(center="dp", atten=False)
     elif name == "final":
         opts.update(center="dp")
     elif name.startswith("fres_"):                 # flow strip resolution, e.g. fres_010 = 0.10 deg/px (E50)

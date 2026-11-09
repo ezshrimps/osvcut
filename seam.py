@@ -308,7 +308,7 @@ class FlowStitch(SmartStitch):
     def __init__(self, cal, lenses, device=None, fband=4.5, fres=0.1, ramp=0.75, flow_ema=0.5,
                  max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, conf="photo", flow="farneback",
                  narrow="off", narrow_warp=3.0, warp=1.0, gate=0.0, flow1d=False,
-                 fb_params=(3, 11, 4, 5, 1.1), grad_w=0.25, centre_w=0.0, room_min=0.0, **kw):
+                 fb_params=(3, 11, 4, 5, 1.1), grad_w=0.25, centre_w=0.0, room_min=0.0, atten=True, **kw):
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         super().__init__(cal, lenses, device=device, **kw)
         self.do_dp = False
@@ -321,6 +321,7 @@ class FlowStitch(SmartStitch):
         # flow, and spread the warp over +-narrow_warp deg (the blend transition stays narrow)
         self.narrow, self.narrow_warp = narrow, float(narrow_warp)
         self.warp = float(warp)            # scale of the half-way alignment (E33: CD vs edge trade-off)
+        self.atten = bool(atten)
         self.room_min = float(room_min)   # E45: margin the path keeps from the overlap edge (deg)
         self.grad_w, self.centre_w = float(grad_w), float(centre_w)   # path cost weights (E43)
         self.fb_params = tuple(fb_params)   # Farneback (levels, winsize, iterations, poly_n, poly_sigma); E37
@@ -449,7 +450,8 @@ class FlowStitch(SmartStitch):
             self.ov_c = torch.tensor(self.fpath, dtype=torch.float32, device=self.dev)
             self.ov_w = torch.tensor(_circ_smooth(w, 5), dtype=torch.float32, device=self.dev)
             half = w
-        flow *= np.minimum(1.0, half / self.ramp)[None, None, :]      # narrow transition -> gentler warp
+        if self.atten:
+            flow *= np.minimum(1.0, half / self.ramp)[None, None, :]  # narrow transition -> gentler warp (E6; E55)
         if self.narrow == "search":
             width = hi - lo
             nw = np.clip((2.5 - width) / 1.5, 0, 1)                    # 1 where the overlap is < 1 deg
