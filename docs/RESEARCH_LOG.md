@@ -335,6 +335,12 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 **R.** Live-morph CD 0.0489 vs 0.0488 (1° better 31/48, p = 0.015), edge-hard 0.158 vs 0.157 (n.s.).
 **C.** Consistent but negligible; not worth twice the track size. 2° bins kept. The remaining gap to tracks computed on the displayed frame is temporal interpolation, not azimuth resolution.
 
+## E41 — Disagreement versus parallax
+
+**M.** `tools_cd_vs_parallax.py`: the 100 E11 frames, seam ring cut into 10° bins (3 598 bins with ≥ 400 both-valid pixels in |β| < 3°); per bin the raw displacement (median Farneback magnitude on unwarped strips) and the CD of the DP cut and of the flow seam on the same pixels; pooled by displacement.
+**R.** Ratio flow/cut: 0.94 (≈0°, n = 1182), 0.86 (0.16°), 0.85 (0.25°), 0.79 (0.38°), 0.67 (0.57°, n = 338), 0.57 (0.89°, n = 22). The cut's CD rises from 0.014 to 0.077; the flow seam's levels off near 0.05.
+**C.** The morph's advantage is concentrated where parallax is large (near objects), exactly where seams are visible; at zero parallax the two methods agree. Figure in the paper (`paper/data/cd_vs_parallax.dat`).
+
 ---
 
 ## Open questions / next experiments
