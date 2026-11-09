@@ -209,9 +209,13 @@ def render_cut(clip_id, start, end, keys=None, aspect="16:9", fps=30, speed=1.0,
                   + (f" at {speed}x" if speed != 1 else "") + f", {size[0]}x{size[1]}). Poll job_status.")]
 
 
-def render_sequence(cuts, title="", aspect="16:9", fps=30):
+def render_sequence(cuts, title="", aspect="16:9", fps=30, projection="flat"):
     size = {"16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:5": [1080, 1350], "2.39:1": [1920, 816]}.get(aspect, [1920, 1080])
     specs = [_spec(cu["clip_id"], cu["start"], cu["end"], cu.get("keys"), size, fps, cu.get("speed", 1.0)) for cu in cuts]
+    if projection == "360":
+        size = [3840, 1920]
+        for sp in specs:
+            sp.update(proj="equirect", size=size, spherical=True); sp.pop("keys", None)
     j = _post("/api/jobs", dict(kind="sequence", specs=specs, title=title or f"AI sequence ({len(specs)} cuts)", size=size, fps=fps))
     if "id" not in j:
         raise ValueError(j.get("error") or "request failed")
@@ -252,6 +256,7 @@ TOOLS = {
                    ["clip_id", "start", "end"]),
     "render_sequence": (render_sequence, "Export several cuts (possibly from different clips) joined into one film. cuts = [{clip_id, start, end, keys?, speed?}].",
                         {"cuts": {"type": "array", "items": {"type": "object"}}, "title": {"type": "string"},
+                         "projection": {"type": "string", "enum": ["flat", "360"], "default": "flat"},
                          "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5", "2.39:1"], "default": "16:9"}, "fps": {"type": "integer", "default": 30}},
                         ["cuts"]),
     "job_status": (job_status, "Status of a render/track job; wait_seconds > 0 blocks until it finishes (up to that long).",

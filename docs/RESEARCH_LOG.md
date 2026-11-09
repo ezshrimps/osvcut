@@ -217,6 +217,12 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **R.** Analysis 51 → 34 ms per update (total 188 → 170 ms per 3840×1920 frame). CD 0.0621 vs 0.0629 (82/100 better, p = 8.9e-10), CD-hard 80/100 better (p = 2.7e-9); edge deviation worse (0.0700 vs 0.0648, 32/100 better, p = 3.2e-4); fidelity and step n.s.
 **C.** A speed/edge trade-off. Exports keep forward–backward confidence; the studio's standard preview preset uses the photometric one.
 
+## E25 — GPU pyramidal Lucas–Kanade flow, and a caveat about the CD metric
+
+**M.** `gpuflow.py`: dense pyramidal LK in PyTorch (3 levels on the 46-row strip, 4 iterations, Gaussian window σ = 2.5 px, Tikhonov damping 500 — undamped it diverged in flat regions), confidence from the structure tensor's smallest eigenvalue and the warped residual. Paired benchmark against Farneback (E11 protocol, n = 100).
+**R.** Speed: no gain (≈ 15 ms per strip pair, launch-bound; total 190 vs 195 ms per frame). CD 0.0591 vs 0.0629 (82/100 better, p = 1.8e-13), CD-hard 84/100 better; but edge deviation 0.102 vs 0.065 (16/100 better, p = 6.5e-13), edge-hard 0.102 vs 0.065, fidelity-hard −0.013.
+**C.** Not adopted. Methodological point: LK minimises exactly the photometric difference that CD measures, so it can lower CD by warping to match non-geometric differences (blur, noise) while adding seam edges. CD must always be reported together with edge deviation; a method that improves CD while worsening edges is suspect.
+
 ---
 
 ## Open questions / next experiments

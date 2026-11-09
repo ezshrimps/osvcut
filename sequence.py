@@ -72,6 +72,9 @@ def main(job_path):
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", joined, "-i", music["path"], "-filter_complex", fc,
                         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                         "-movflags", "+faststart", dst], check=True)
+    if specs and all(sp.get("spherical") and sp.get("proj") == "equirect" for sp in specs):
+        import spherical                       # every cut is a 360 render: tag the joined film too
+        spherical.inject(dst)
     for p in os.listdir(tmp):
         os.remove(os.path.join(tmp, p))
     os.rmdir(tmp)
