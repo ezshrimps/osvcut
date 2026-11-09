@@ -110,11 +110,44 @@ Stronger temporal smoothing did not change the numbers (1.341 / 1.247).
 **R.** H 43.5→49 s: subject stays boxed through partial occlusion by another person's hand; 5.5 s of footage tracked in 8.5 s.
 **Open.** Quantitative tracking accuracy needs annotated boxes.
 
+## E11 — Multi-clip seam benchmark (v2)
+
+**Q.** Which seam method is best across the corpus, especially where parallax is real?
+**M.** `eval_seams.py`: 20 clips drawn with a fixed seed from the 239 (duration > 3 s), 5 evenly spaced frames each (n = 100). Metrics on the body-frame seam strip (±5°, 0.1°/px), only where both lenses are valid:
+- **CD (contribution disagreement)**: Σ 4·w_A·w_B·|Y_A − Y_B| / Σ 4·w_A·w_B over the two (warped, gain-compensated) contributions — how much the two sources disagree wherever they are mixed. Method-agnostic: covers crossfades, cut lines and morph ramps alike.
+- **Fidelity**: mean over |β|<3° of max(SSIM(out, slave-only), SSIM(out, master-only)). Biased toward cut methods (they copy source pixels by construction); reported for completeness.
+- **Edge deviation**: |log(E_out / E_ref)| of across-seam gradient energy in |β|<1.5° vs the single-lens references.
+- **Excess exposure step**: luminance step across the seam beyond the better single lens's natural step.
+- **Hard subset**: azimuth columns whose median Farneback |flow| between the lenses exceeds 0.4° (dilated ±2°) — where parallax is visible.
+- Runtime per 3840×1920 frame (update + render).
+
+**R.** Means with 95 % bootstrap CIs:
+
+| method | CD ↓ | CD hard ↓ | edge hard ↓ | fidelity hard ↑ | step ↓ | ms |
+|---|---|---|---|---|---|---|
+| legacy 12° crossfade | 0.1007 [.0930,.1087] | 0.1334 [.1266,.1399] | 0.1882 [.1808,.1957] | 0.853 | 0.0298 | 23 |
+| smart (DP cut) | 0.0706 [.0663,.0748] | 0.0923 [.0883,.0966] | **0.0517** [.0438,.0601] | **0.967** | 0.0232 | 146 |
+| flow, ramp centred in overlap | 0.0853 [.0791,.0914] | 0.1187 [.1129,.1246] | 0.0758 | 0.870 | 0.0275 | 169 |
+| flow + DP path, ramp ±3° | 0.0711 [.0661,.0764] | 0.0972 [.0924,.1020] | 0.0863 | 0.884 | **0.0229** | 180 |
+| **flow + DP path, ramp ±1.5°** | **0.0629** [.0588,.0670] | **0.0836** [.0798,.0875] | 0.0653 [.0563,.0747] | 0.929 | 0.0245 | 180 |
+
+Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 frames (p = 1.6e-13), CD-hard 82/100 (p = 1.7e-10); edge-hard worse on 56/100 (mean +0.014, p = 0.022); fidelity worse on all (expected bias). Vs legacy: better on every metric except step (n.s., p = 0.25).
+
+**C.** Aligning both lenses half-way with the flow and placing a *narrow* morph ramp on the minimum-disagreement closed path gives the lowest disagreement overall and on the parallax-heavy subset; a wide ramp centred in the overlap is clearly worse (the ramp crosses regions where the two lenses differ for reasons flow cannot fix: edge MTF, chromatic aberration, noise). Pure DP cuts keep slightly crisper edges. Default is now flow + DP, ±1.5°.
+**Limitations.** No ground truth for a centre-of-rig view; metrics are proxies. A perceptual study (pairwise preference on seam crops) is the next step.
+**Reproduce.** `python eval_seams.py --clips 20 --frames 5 --seed 0 --out results/seam_bench_v2.json && python analyze_bench.py results/seam_bench_v2.json flow_dp_r15`.
+
+## E12 — How much of the lens-to-lens residual is misalignment?
+
+**M.** `tools_flow_residual.py`: textured core pixels, |A − B| with no warp / raw flow / processed flow; strips sampled at 0.2°/px directly vs. at 0.05°/px then area-downsampled.
+**R.** Y: 38.4 → 34.1 (raw flow) gray levels; anti-aliased strips 36.0 → 32.0. H: 33.9 → 28.9; anti-aliased 29.7 → 25.5. Processed (smoothed, confidence-filled, clamped) flow keeps about half the gain.
+**C.** Most of the remaining lens-to-lens difference on texture is not geometric (edge-of-field blur, chromatic aberration, sensor noise, aliasing); this is why the seam should run where the two lenses *agree* rather than through the overlap centre (motivates E11's DP placement).
+
 ---
 
 ## Open questions / next experiments
 
-1. Ghosting metric that rewards single, sharp structure in the transition band (e.g. max SSIM to either single-lens render) for a multi-clip benchmark.
-2. Multi-clip evaluation protocol: ≥ 20 clips × 30 frames, methods {legacy, smart, flow}, metrics {ghost, flicker, exposure step, runtime}; DJI Studio exports as an external baseline if available.
+1. ~~Multi-clip benchmark~~ → E11. Next: perceptual pairwise study on seam crops; DJI Studio / OpenOSV exports as external baselines.
+2. Temporal metrics (flicker) on the benchmark clips for every method.
 3. Near-field parallax on the handle side (1° overlap): depth-aware or temporal fill.
 4. Tracking accuracy benchmark.

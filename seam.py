@@ -252,7 +252,7 @@ class FlowStitch(SmartStitch):
     band, then both images are morphed toward each other across a transition zone so that
     near objects stay single and continuous instead of doubling or being cut."""
 
-    def __init__(self, cal, lenses, device="cuda", fband=4.5, fres=0.2, ramp=3.0, flow_ema=0.5,
+    def __init__(self, cal, lenses, device="cuda", fband=4.5, fres=0.2, ramp=1.5, flow_ema=0.5,
                  max_flow=4.0, center="dp", **kw):
         super().__init__(cal, lenses, device=device, **kw)
         self.do_dp = False

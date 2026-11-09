@@ -104,9 +104,25 @@ def disagreement(pA, pB, wA, wB, both):
     return float((w * np.abs(luma(pA) - luma(pB))).sum() / w.sum())
 
 
+def hard_columns(A, B, both, betas, thr_deg=0.4):
+    """Azimuth columns with real parallax: median |Farneback flow| in |beta|<3 above thr."""
+    a8, b8 = (np.clip(A, 0, 1) * 255).astype(np.uint8), (np.clip(B, 0, 1) * 255).astype(np.uint8)
+    F = cv2.calcOpticalFlowFarneback(a8, b8, None, 0.5, 3, 15, 4, 5, 1.1, 0)
+    mag = np.hypot(F[..., 0], F[..., 1]) * RES
+    core = (np.abs(betas)[:, None] < 3) & both
+    m = np.where(core, mag, np.nan)
+    with np.errstate(all="ignore"):
+        col = np.nanmedian(m, axis=0)
+    hard = np.nan_to_num(col) > thr_deg
+    # dilate by 2 deg so the whole object is included
+    k = int(2 / RES)
+    hard = np.convolve(hard.astype(float), np.ones(2 * k + 1), "same") > 0
+    return hard
+
+
 def metrics(O, A, B, both, betas):
     core = (np.abs(betas)[:, None] < 3) & both
-    if core.sum() < 2000:
+    if core.sum() < 300:
         return None
     S = np.maximum(ssim_map(O, A), ssim_map(O, B))
     ghost = float(S[core].mean())
@@ -163,6 +179,7 @@ def main():
             A = luma(cA ** (1 / 2.2))
             B = luma(cB ** (1 / 2.2))
             both = ((mA > 0.5) & (mB > 0.5)).cpu().numpy()
+            hard = hard_columns(A, B, both, betas)
             for name in METHODS:
                 torch.cuda.synchronize()
                 t0 = time.time()
@@ -180,6 +197,15 @@ def main():
                 if m is None:
                     continue
                 m["cd"] = disagreement(pA, pB, wA, wB, both)
+                m["hard_frac"] = float(hard.mean())
+                if hard.mean() > 0.01:
+                    bh = both & hard[None, :]
+                    m["cd_hard"] = disagreement(pA, pB, wA, wB, bh)
+                    mh = metrics(luma(O), A, B, bh, betas)
+                    m["edge_hard"] = mh["edge_dev"] if mh else float("nan")
+                    m["fid_hard"] = mh["ghost_ssim"] if mh else float("nan")
+                else:
+                    m["cd_hard"] = m["edge_hard"] = m["fid_hard"] = float("nan")
                 rows.append(dict(clip=c["id"], event=c.get("event"), mode="8K" if c.get("lens_px", 0) >= 3840 else "4K",
                                  t=round(t, 2), method=name, ms=round(ms, 1), **m))
         print(f"[{ci + 1}/{len(clips)}] {c['name']} done ({len([r for r in rows if r['clip'] == c['id']]) // len(METHODS)} frames)", flush=True)
