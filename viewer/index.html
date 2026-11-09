@@ -407,7 +407,7 @@ body.bt .btview .btpair img{cursor:default}
         <option value="flat|0.8|30|20">Instagram（4:5）</option>
         <option value="flat|1|30|20">方形 1:1</option>
         <option value="360|0|30|18">YouTube 360° / VR（3840×1920 全景）</option></select></div>
-      <div class="row"><label>导出类型</label><select id="projSel"><option value="flat">平面视频（按关键帧取景）</option><option value="360">360° 全景视频（YouTube / VR）</option></select></div>
+      <div class="row"><label>导出类型</label><select id="projSel"><option value="flat">平面视频（按关键帧取景）</option><option value="360">360° 全景视频（YouTube / VR）</option><option value="360-8k">360° 全景 8K（7680×3840，HEVC，8K 模式素材）</option></select></div>
       <div class="row"><label>拼缝</label><select id="seamSel"><option value="flow">光流对齐（推荐）</option><option value="smart">最优切缝</option><option value="legacy">旧版羽化</option></select></div>
       <div class="row"><label>画质</label><select id="cqSel"><option value="18">高（大文件）</option><option value="20" selected>标准</option><option value="24">小文件</option></select>
         <select id="fpsSel" style="flex:.6"><option value="25">25fps</option><option value="30">30fps</option><option value="50" selected>50fps</option></select></div>
@@ -707,8 +707,8 @@ function writeSpec(){
   const size=(SIZES.find(([a])=>state.aspect&&Math.abs(state.aspect-a)<.01)||[0,[1920,1080]])[1];
   let tin=ks.length?Math.max(0,ks[0].t):0, tout=ks.length?Math.min(vid.duration||ks.at(-1).t+1,ks.at(-1).t+1):(vid.duration||0);
   if(state.inP!=null) tin=state.inP; if(state.outP!=null) tout=state.outP;
-  const is360=$('projSel')?.value==='360';
-  const spec={src:c.src,in:r2(c.in+tin),out:r2(c.in+tout),proj:is360?'equirect':'flat',size:is360?[3840,1920]:size,...(is360?{spherical:true}:{}),fps:+($('fpsSel')?.value||50),seam:$('seamSel')?.value||'flow',cq:+($('cqSel')?.value||20),...(+($('nadirSel')?.value||0)>0?{nadir_patch:+$('nadirSel').value}:{}),...(Object.keys(gradeVals()).length?{grade:gradeVals()}:{}),...captionsFor(c,tin,tout),...freezeFor(c,tin,tout),...slowFor(c,tin,tout),...(+($('speedSel')?.value||1)!==1?{speed:+$('speedSel').value}:{}),
+  const is360=($('projSel')?.value||'').startsWith('360'), is8k=$('projSel')?.value==='360-8k';
+  const spec={src:c.src,in:r2(c.in+tin),out:r2(c.in+tout),proj:is360?'equirect':'flat',size:is360?(is8k?[7680,3840]:[3840,1920]):size,...(is360?{spherical:true}:{}),fps:+($('fpsSel')?.value||50),seam:$('seamSel')?.value||'flow',cq:+($('cqSel')?.value||20),...(+($('nadirSel')?.value||0)>0?{nadir_patch:+$('nadirSel').value}:{}),...(Object.keys(gradeVals()).length?{grade:gradeVals()}:{}),...captionsFor(c,tin,tout),...freezeFor(c,tin,tout),...slowFor(c,tin,tout),...(+($('speedSel')?.value||1)!==1?{speed:+$('speedSel').value}:{}),
     keys:ks.map(k=>Object.assign({t:r2(Math.max(0,k.t-tin)),yaw:r1(k.yaw),pitch:r1(k.pitch),fov:r1(k.fov)},k.dist>0.001?{dist:r2(k.dist)}:{},k.ease?{ease:k.ease}:{})),dst:`samples/${c.id}_cut.mp4`};
   $('spec').value=JSON.stringify(spec,null,1).replace(/\n\s+(?=[\d\-\]}])/g,' ').replace(/\{\n\s+/g,'{');
   $('specwarn').textContent=(ks.some(k=>k.fov>150&&!(k.dist>0.3))?'提示：直线投影下 fov>150° 边缘拉伸严重，可调大「畸变」或用超广角/小行星预设。':'')
@@ -1095,7 +1095,7 @@ async function loadExports(){
 }
 $('exportGo').onclick=async()=>{
   const c=state.clip; if(!c){return}
-  if(!state.keys.length&&!($('projSel').value==='360'&&state.inP!=null)){toast($('projSel').value==='360'?'360 导出：先用 I / O 设好入出点':'先记录至少一个关键帧（按 K）');return}
+  if(!state.keys.length&&!($('projSel').value.startsWith('360')&&state.inP!=null)){toast($('projSel').value.startsWith('360')?'360 导出：先用 I / O 设好入出点':'先记录至少一个关键帧（按 K）');return}
   let spec; try{spec=JSON.parse($('spec').value)}catch{toast('spec 无效');return}
   const title=$('exportTitle').value||`${c.title} · ${state.keys.length} 个关键帧`;
   if($('titleCard').checked&&$('exportTitle').value.trim()) spec.title={text:$('exportTitle').value.trim(),seconds:3};

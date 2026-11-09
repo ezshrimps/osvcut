@@ -364,7 +364,7 @@ def render(spec):
             amap=["-filter_complex",f"[1:a]{af},asplit=2[x][y];[x]atrim=0:{rel:.3f},asetpts=PTS-STARTPTS[a1];[y]atrim={rel:.3f},asetpts=PTS-STARTPTS[a2];"
                   f"anullsrc=r=48000:cl=stereo,atrim=0:{fdur:.3f}[sl];[a1][sl][a2]concat=n=3:v=0:a=1[aout]","-map","[aout]"]
     enc=subprocess.Popen(["ffmpeg","-v","error","-y","-f","rawvideo","-pix_fmt","rgb24","-s",f"{Wo}x{Ho}","-r",str(fps_out),"-i","-",
-        "-ss",str(t0),"-to",str(t1),"-i",f,"-map","0:v"]+amap+(["-af",",".join(f"atempo={a:.6f}" for a in atempo)] if atempo else [])+["-c:v","h264_nvenc","-preset","p5","-cq",str(spec.get("cq",20)),"-pix_fmt","yuv420p","-c:a","aac"]+(["-shortest"] if not atempo else [])+(["-r",str(fps)] if spec.get("force_fps") else [])+[spec["dst"]],stdin=subprocess.PIPE)
+        "-ss",str(t0),"-to",str(t1),"-i",f,"-map","0:v"]+amap+(["-af",",".join(f"atempo={a:.6f}" for a in atempo)] if atempo else [])+(["-c:v","hevc_nvenc","-tag:v","hvc1"] if max(Wo,Ho)>4096 else ["-c:v","h264_nvenc"])+["-preset","p5","-cq",str(spec.get("cq",20)),"-pix_fmt","yuv420p","-c:a","aac"]+(["-shortest"] if not atempo else [])+(["-r",str(fps)] if spec.get("force_fps") else [])+[spec["dst"]],stdin=subprocess.PIPE)
     writer=FrameWriter(enc)
     from concurrent.futures import ThreadPoolExecutor
     seam_async=bool(spec.get("seam_async",True)) and smart

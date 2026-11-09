@@ -19,14 +19,13 @@ Studio exports of the same clips. osvcut's column is what the code in this repos
 | Speech | — | Transcript (faster-whisper), search the library by what was said, talk-segment suggestions | osvcut only |
 | One-click edit | — | Draft film from a group of clips, beat-synced cuts | osvcut only |
 | Stills | Snapshot | 4K stills with the full seam, still candidates (steadiest instants) | |
-| 360 export | Up to 8K equirect (per one reviewer) | Levelled 360 MP4 with spherical metadata, batch per group (3840×1920 tested) | 8K 360 export not yet exposed in the UI |
+| 360 export | Up to 8K equirect (per one reviewer) | Levelled 360 MP4 with spherical metadata, batch per group; 3840×1920 (H.264) or 7680×3840 (HEVC, ~8× real time with the flow seam) | |
 | Automation / AI agents | — | JSON render specs, MCP server (render, sequence, auto-edit, contact sheets, views) | osvcut only |
 | Performance | Reviewers report it can be slow / buggy | Live WebGL stitch from proxies (opens in ~20 s for a 67-s clip), 360 export 1.6× real time | Same-machine timing pending |
 
 ## Gaps to close
 
-1. 8K equirect export from the UI.
-2. Same-footage stitch comparison (needs DJI Studio exports).
+1. Same-footage stitch comparison (needs DJI Studio exports).
 
 ## Sources
 
