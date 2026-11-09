@@ -358,7 +358,8 @@ body.bt .btview .btpair img{cursor:default}
       <div class="btns" style="margin-top:8px"><span class="minicap" style="margin:0;align-self:center">运镜模板：</span>
         <button class="btn" data-tpl="planet" title="从小行星视角旋转展开到当前取景">小行星开场</button>
         <button class="btn" data-tpl="orbit" title="原地水平转一圈">环绕一周</button>
-        <button class="btn" data-tpl="reveal" title="从天空缓缓落到当前取景">抬头揭幕</button></div>
+        <button class="btn" data-tpl="reveal" title="从天空缓缓落到当前取景">抬头揭幕</button>
+        <button class="btn" id="holderFollow" title="入出点之间镜头始终对着手持自拍杆的人（按 IMU 计算，无需识别）">跟拍持杆人</button></div>
       <label class="check"><input type="checkbox" id="follow"> 播放时按关键帧运镜（预览成片）</label>
       <div class="kflist" id="kflist"></div>
       <div class="empty" id="kfempty">还没有关键帧。转到想要的视角按 K 记录；或在画面上 <kbd>Shift</kbd>+拖框选中一个人，自动跟随。</div>
@@ -1268,6 +1269,17 @@ $('holderBtn').onclick=async()=>{
   if(h.error){toast(h.error);return}
   Object.assign(state,{yaw:h.yaw,pitch:h.pitch,hfov:h.fov,dist:0}); syncControls();
   toast('已转向持杆人方向（按 IMU 估计，可拖动微调，或 Shift+拖框跟随）');
+};
+
+$('holderFollow').onclick=async()=>{
+  const c=state.clip, id=c&&libIdFor(c); if(!id){toast('这段不在素材库里');return}
+  const D=clipDuration(), t0=state.inP??(vid.currentTime||0), t1=state.outP??Math.min(D,t0+10);
+  let ks; try{ks=await (await fetch(`/api/clip/${id}/holder?t0=${t0.toFixed(2)}&t1=${t1.toFixed(2)}`)).json()}catch{return}
+  if(!Array.isArray(ks)||!ks.length){toast('没有生成关键帧');return}
+  state.keys=state.keys.filter(k=>k.t<t0-0.01||k.t>t1+0.01).concat(ks.map(k=>Object.assign({dist:0},k)));
+  state.inP=t0; state.outP=t1; state.follow=true; $('follow').checked=true; renderKeys();
+  if(vid.src){vid.currentTime=t0; vid.play().catch(()=>{})}
+  toast(`跟拍持杆人：${ks.length} 个关键帧（${fmtDur(t0)}–${fmtDur(t1)}）`);
 };
 
 /* ---------- help ---------- */

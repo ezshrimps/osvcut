@@ -193,6 +193,12 @@ def track_subject(clip_id, t0, t1, yaw, pitch, box_w=12.0, box_h=30.0, fov=90.0)
     return [_text(msg)]
 
 
+def holder_keys(clip_id, start, end):
+    keys = _get(f"/api/clip/{clip_id}/holder?" + urllib.parse.urlencode({"t0": start, "t1": end}))
+    return [_text(f"{len(keys)} keyframes that keep the selfie-stick holder in view ({start:.1f}-{end:.1f}s), from the IMU; "
+                  "pass them as keys to render_cut. keys = " + json.dumps(keys))]
+
+
 def _spec(clip_id, start, end, keys=None, size=(1920, 1080), fps=30, speed=1.0, seam="flow"):
     c = _clip(clip_id)
     keys = keys or [{"t": start, "yaw": 0, "pitch": 0, "fov": 90}]
@@ -257,6 +263,8 @@ TOOLS = {
               "fov": {"type": "number", "default": 90}, "little_planet": {"type": "boolean", "default": False},
               "width": {"type": "integer", "default": 960}, "height": {"type": "integer", "default": 540},
               "at": {"type": "string", "enum": ["", "holder"], "default": ""}}, ["clip_id", "t"]),
+    "holder_keys": (holder_keys, "Selfie mode: camera keyframes that keep the person holding the selfie stick in view between start and end (no detection; from the IMU).",
+                    {"clip_id": {"type": "string"}, "start": {"type": "number"}, "end": {"type": "number"}}, ["clip_id", "start", "end"]),
     "track_subject": (track_subject, "Follow a subject seen at (yaw, pitch) at time t0 until t1 and return camera keyframes that keep it centred. box_w/box_h = subject size in degrees.",
                       {"clip_id": {"type": "string"}, "t0": {"type": "number"}, "t1": {"type": "number"}, "yaw": {"type": "number"},
                        "pitch": {"type": "number"}, "box_w": {"type": "number", "default": 12}, "box_h": {"type": "number", "default": 30},

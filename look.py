@@ -80,3 +80,21 @@ def holder_direction(clip, t, lift=40.0):
     pitch = math.degrees(math.asin(max(-1.0, min(1.0, d[2]))))
     return dict(t=t, stick_yaw=round(yaw, 1), stick_pitch=round(pitch, 1), yaw=round(yaw, 1),
                 pitch=round(min(60.0, pitch + lift), 1), fov=100)
+
+
+def holder_track(clip, t0, t1, step=0.5, lift=40.0, smooth=1.0):
+    """Keyframes that keep the selfie-stick holder in view between t0 and t1 (IMU only)."""
+    ts_ = np.arange(t0, t1 + 1e-6, step)
+    pts = [holder_direction(clip, float(t), lift) for t in ts_]
+    yaw = np.degrees(np.unwrap(np.radians([p["yaw"] for p in pts])))
+    pitch = np.array([p["pitch"] for p in pts])
+    k = max(1, int(round(smooth / step)))
+    if k > 1:
+        pad = lambda a: np.pad(a, (k // 2, k - 1 - k // 2), mode="edge")
+        yaw = np.convolve(pad(yaw), np.ones(k) / k, "valid")
+        pitch = np.convolve(pad(pitch), np.ones(k) / k, "valid")
+    keys = [dict(t=round(float(t), 3), yaw=round(float(((y + 180) % 360) - 180), 1), pitch=round(float(p), 1), fov=100,
+                 ease="linear") for t, y, p in zip(ts_, yaw, pitch)]
+    if keys:
+        keys[-1].pop("ease")
+    return keys

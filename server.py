@@ -198,7 +198,10 @@ class Handler(RangeHandler):
             if not c:
                 return self._json({"error": "unknown clip"}, 404)
             from urllib.parse import parse_qs
-            t = float(parse_qs(u.query).get("t", ["0"])[0])
+            qs_ = parse_qs(u.query)
+            if "t1" in qs_:
+                return self._json(look.holder_track(c, float(qs_.get("t0", ["0"])[0]), float(qs_["t1"][0])))
+            t = float(qs_.get("t", ["0"])[0])
             return self._json(look.holder_direction(c, t))
         m = re.match(r"^/api/clip/([0-9a-f]{12})/(view|sheet)$", p)
         if m:
