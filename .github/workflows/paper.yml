@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Static checks
-        run: cd paper && python3 check_tex.py main.tex
+        run: cd paper && python3 check_tex.py main.tex && python3 check_math.py main.tex
       - name: Compile (latexmk)
         uses: xu-cheng/latex-action@v3
         with:
