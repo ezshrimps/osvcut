@@ -223,6 +223,13 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **R.** Speed: no gain (≈ 15 ms per strip pair, launch-bound; total 190 vs 195 ms per frame). CD 0.0591 vs 0.0629 (82/100 better, p = 1.8e-13), CD-hard 84/100 better; but edge deviation 0.102 vs 0.065 (16/100 better, p = 6.5e-13), edge-hard 0.102 vs 0.065, fidelity-hard −0.013.
 **C.** Not adopted. Methodological point: LK minimises exactly the photometric difference that CD measures, so it can lower CD by warping to match non-geometric differences (blur, noise) while adding seam edges. CD must always be reported together with edge deviation; a method that improves CD while worsening edges is suspect.
 
+## E26 — Framing the selfie-stick holder from the IMU alone
+
+**Q.** Without a person detector (OpenCV 5 ships none; downloading weights needs the user's consent), can the main subject be framed automatically?
+**M.** With an invisible selfie stick the stick runs along the camera body's −Z axis, so the holder lies along M(t)ᵀ·(0,0,−1) in the levelled frame; the face sits above the hand, so the pitch is lifted by 40°. `look.holder_direction` / `holder_track` (0.5 s keys, 1 s smoothing, linear easing).
+**R.** Checked visually on 3 single frames and a 12 s follow on the trail clip: the holder is in frame throughout (at the frame edge in 1/3 single frames, because the arm holds the stick sideways rather than towards the face).
+**C.** A useful zero-model starting point (studio button and template, MCP `holder_keys` / `look(at="holder")`); not a replacement for detection-based framing. Quantitative evaluation needs annotated face positions.
+
 ---
 
 ## Open questions / next experiments
