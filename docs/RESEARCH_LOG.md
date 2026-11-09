@@ -388,6 +388,12 @@ Re-runs with the final settings: 8K CD 30/30 vs the cut, hard 29/30 (p = 8e-8), 
 **R.** CD 0.0290 / 0.0291 / 0.0290; CD-hard 0.0418 / 0.0420 / 0.0418; edge-hard 0.0433 / 0.0425 / 0.0431; edge 0.0281 / 0.0285 / 0.0284; step 0.0095 / 0.0099 / 0.0096 — all within noise.
 **C.** The confidence definition is no longer a limiting factor. `photo` kept (one flow instead of two). `conf="both"` remains available. The class default is now `photo` as well (exports did not pass `seam_opts` and used `fb`, i.e. two Farneback passes): a default 1080p30 reframed export runs at 35.7 fps, up from 25.8.
 
+## E49 — Single-lens fast path outside the seam band
+
+**M.** Per-stage timing of a 3840×1920 360 export: render 57.5 ms per frame (the bottleneck; readback 6 ms, rgb24 → NVENC 16 ms in another thread). Outside the band the transition can reach (max |path| + ramp + 0.25°, at least 4.5°), the other lens's weight is ≤ 1e-4, so `FlowStitch.render` now samples only the owning lens there (with the same exposure field) and runs the full morph on the band; pixels whose own mask is not fully valid fall back to the full path. Checked against the full computation on two clips (3840×1920, rotated view).
+**R.** Render 57.5 → 22–28 ms; max |difference| 0.0035 (< 1 grey level), 0 pixels above 1/255. (A first version with a fixed 4.5° band differed on up to 1 220 pixels by up to 0.07: with the edge margin gone (E45) the path can run at the strip edge, so the transition reaches beyond 4.5°.) 360 export 25.6 → 16.1 s per 10 s (1.6× real time); 2880×1440 preview 14.9 → 10.9 s (27.6 fps).
+**C.** Adopted (automatic for outputs > 400 k pixels, not for diagnostics with `parts=True`).
+
 ---
 
 ## Open questions / next experiments

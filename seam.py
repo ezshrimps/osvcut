@@ -523,9 +523,46 @@ class FlowStitch(SmartStitch):
         a, b = torch.deg2rad(alpha_deg), torch.deg2rad(beta_deg)
         return torch.stack([torch.cos(b) * torch.cos(a), torch.sin(b), torch.cos(b) * torch.sin(a)], -1)
 
-    def render(self, imgs, d, parts=False):
+    def _gain(self, alpha, beta):
+        logr = torch.tensor(self.logr, dtype=torch.float32, device=self.dev)
+        g = logr.mean(1)[:, None, None]
+        local = _circ_interp(logr, (alpha / 360 * self.nb - 0.5) % self.nb) - g
+        return g + local * (1 - beta.abs() / 45).clamp(0, 1)
+
+    def render(self, imgs, d, parts=False, _full=False):
         if self.flow is None:
             self.update(imgs)
+        # E49: away from the seam band only one lens is used (the other's weight is <= 1e-4 there), so large
+        # outputs render the band with the full morph and everything else from a single lens.
+        if not parts and not _full and getattr(self, "bands", 1) == 1 and d.shape[0] * d.shape[1] > 400_000:
+            H, W = d.shape[:2]
+            y = d[..., 1]
+            # band that can be touched by the transition: the path's largest offset plus the ramp, at least fband
+            reach = float((self.ov_c.abs() + self.ov_w).max()) + 0.25
+            lim = math.sin(math.radians(min(89.0, max(self.fband, reach))))
+            near = y.abs() < lim
+            out = torch.empty((3, H, W), device=d.device)
+            if near.any():
+                out[:, near] = self.render(imgs, d[near][:, None, :], _full=True)[:, :, 0]
+            for i, sel in ((0, (y <= -lim)), (1, (y >= lim))):
+                if sel.any():
+                    ds = d[sel][:, None, :]
+                    c_, m_ = self._sample(i, imgs[i], ds)
+                    if (m_ < 0.999).any():                 # not fully valid (mask feather, occlusion): full path
+                        bad = (m_ < 0.999)[:, 0]
+                        idx = sel.nonzero()
+                        bsel = torch.zeros_like(sel)
+                        bsel[idx[bad, 0], idx[bad, 1]] = True
+                        sel = sel & ~bsel
+                        out[:, bsel] = self.render(imgs, d[bsel][:, None, :], _full=True)[:, :, 0]
+                        ds = ds[~bad]
+                        c_ = c_[:, ~bad]
+                    a_ = torch.rad2deg(torch.atan2(ds[..., 2], ds[..., 0])) % 360
+                    b_ = torch.rad2deg(torch.asin(ds[..., 1].clamp(-1, 1)))
+                    lr = self._gain(a_, b_)
+                    c_ = c_ * torch.exp((-lr if i == 0 else lr) / 2)
+                    out[:, sel] = (c_.clamp(0, 1) ** (1 / GAMMA))[:, :, 0]
+            return out
         x, y, z = d.unbind(-1)
         alpha = torch.rad2deg(torch.atan2(z, x)) % 360
         beta = torch.rad2deg(torch.asin(y.clamp(-1, 1)))

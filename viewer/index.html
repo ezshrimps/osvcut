@@ -953,7 +953,7 @@ function renderLibrary(){
     const cs=(groups.get(b.dataset.grp)||[]).filter(c=>c.lenses===2&&c.duration>0);
     const tot=cs.reduce((a,c)=>a+c.duration,0);
     if(!cs.length||!confirm(`导出 ${cs.length} 段 360° 全景视频（共 ${fmtDur(tot)}）？
-在 GPU 上大约需要素材时长的 1.5–2 倍时间，任务会排队依次完成。`)) return;
+在 GPU 上大约需要素材时长的 1.6 倍时间（RTX 4070 Ti 实测），任务会排队依次完成。`)) return;
     for(const c of cs){
       const spec={src:c.src,in:0,out:r2(c.duration),proj:'equirect',size:[3840,1920],spherical:true,fps:Math.min(30,Math.round(c.fps||30)),seam:'flow',seam_opts:{conf:'photo'},cq:20};
       await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'export',spec,title:c.name.replace(/\.OSV$/i,'')+' · 360'})});
