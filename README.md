@@ -76,21 +76,28 @@ Optional: `spherical` (with `proj: equirect`: tag the MP4 as 360 video for YouTu
 
 ## Use it from an AI assistant (MCP)
 
-`mcp_server.py` exposes the studio to MCP clients (Claude Code, Claude Desktop, …). Start the studio, then:
+`mcp_server.py` exposes the studio to MCP clients (Claude Code, Claude Desktop, …):
 
 ```bash
 claude mcp add osvcut -- python /path/to/osvcut/mcp_server.py
 ```
 
+If the studio is not running, the first tool call starts it (detached, it outlives the MCP server). Environment:
+`OSVCUT_URL` (default `http://127.0.0.1:8360`), `OSVCUT_ROOTS` (library folders, `;`-separated, default `E:\Videos`),
+`OSVCUT_PYTHON` (interpreter for the studio, needs torch; default the MCP server's), `OSVCUT_AUTOSTART=0` to turn it off.
+
 | Tool | What the assistant gets |
 |---|---|
-| `list_clips` | search the library (event, file, date, duration, mode) |
+| `list_clips` | search the library (event, file, date, duration, mode), with a summary: total footage, clips and duration per day, clips without audio / transcript / under 2 s |
 | `search_speech` | find clips and times by what is said (batch Whisper transcripts) |
+| `transcribe` | transcribe the clips that have none yet (by ids or query) - talk segments, captions and speech search need it |
 | `clip_overview` | levelled 360 contact sheet (image) + transcript + camera motion + suggested segments |
 | `look` | a rendered view at any time and direction (or a little-planet overview) — the assistant can look around |
-| `track_subject` | follow a person from (t0, yaw, pitch) → camera keyframes |
-| `render_cut` / `render_sequence` | export one cut / several cuts joined (aspect, fps, speed) |
-| `job_status` | progress and output path |
+| `holder_keys` / `track_subject` | keyframes on the selfie-stick holder / follow a person from (t0, yaw, pitch) |
+| `plan_edit` | a reviewable edit plan in seconds, no rendering: cuts in capture order, coverage per day and part of day vs. footage share, warnings (missing transcripts, skipped clips) and a `cuts` JSON for `render_sequence` |
+| `auto_edit` | plan + render in one background job (returns at once); `coverage="even"` spreads cuts over the whole footage timeline, `"highlights"` takes the best segments; optional `music_path`, `transcribe_missing` |
+| `render_cut` / `render_sequence` | export one cut / several cuts joined (aspect, fps, speed; `render_sequence` takes `plan_edit` cuts with their captions) |
+| `job_status` | progress, stage (transcribing / planning / running) and output; plan and auto-edit jobs list their cuts and warnings |
 
 ## Files
 

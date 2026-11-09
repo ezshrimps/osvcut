@@ -1058,7 +1058,7 @@ let pollT=null;
 async function pollJobs(){
   clearTimeout(pollT);
   const prev=JOBS; try{JOBS=await (await fetch('/api/jobs',{cache:'no-store'})).json()}catch{}
-  const active=JOBS.filter(j=>j.status==='queued'||j.status==='running');
+  const active=JOBS.filter(j=>['queued','running','planning','transcribing'].includes(j.status));
   $('jobdot').textContent=active.length?`(${active.length})`:'';
   renderJobs();
   for(const j of JOBS){const p=prev.find(x=>x.id===j.id);
@@ -1083,8 +1083,8 @@ function renderJobs(){
   const list=JOBS.slice(0,12);
   $('jobs').innerHTML=list.length?'<h3>任务</h3>'+list.map(j=>`<div class="job"><div>${esc(j.title)}</div>
     <div class="pbar" style="margin:0"><i style="width:${(j.progress*100).toFixed(1)}%"></i></div>
-    <div class="st ${j.status}">${({queued:'排队中',running:Math.round(j.progress*100)+'%'+(j.eta?' · '+fmtDur(j.eta):''),done:'完成',failed:'失败',cancelled:'已取消'})[j.status]}</div>
-    <div>${j.status==='queued'||j.status==='running'?`<button class="btn" data-cancel="${j.id}">取消</button>`:j.status==='done'&&j.kind==='preview'?`<button class="btn" data-open="${j.clip}">打开</button>`:''}</div>
+    <div class="st ${j.status}">${({planning:'规划中 '+Math.round(j.progress*100)+'%',transcribing:'转写中 '+Math.round(j.progress*100)+'%',queued:'排队中',running:Math.round(j.progress*100)+'%'+(j.eta?' · '+fmtDur(j.eta):''),done:'完成',failed:'失败',cancelled:'已取消'})[j.status]}</div>
+    <div>${['queued','running','planning','transcribing'].includes(j.status)?`<button class="btn" data-cancel="${j.id}">取消</button>`:j.status==='done'&&j.kind==='preview'?`<button class="btn" data-open="${j.clip}">打开</button>`:''}</div>
     ${j.error?`<div class="err">${esc(j.error)}</div>`:''}</div>`).join(''):'';
   $('jobs').querySelectorAll('[data-cancel]').forEach(b=>b.onclick=async()=>{await fetch(`/api/jobs/${b.dataset.cancel}/cancel`,{method:'POST'});pollJobs()});
   $('jobs').querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{const c=LIB.clips.find(x=>x.id===b.dataset.open);if(c){setTab('360');loadClip(libToClip(c))}});

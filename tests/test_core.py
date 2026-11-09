@@ -241,6 +241,52 @@ def test_suggest_talk_calm_whip():
     assert all(x["end"] - x["start"] <= 8.0 + 1e-9 for x in S if x["kind"] == "calm")
 
 
+def test_plan_covers_whole_trip_in_capture_order():
+    """Auto edit plan: clips passed out of order, one long evening clip; every day appears, cuts follow capture time,
+    the long clip gets cuts in proportion to its footage, a 1-s clip is skipped and missing transcripts are reported."""
+    import analysis
+    import autoedit
+    import look
+    clips = [dict(id="t_c", name="CAM_20260405031000_0003_D.OSV", path="c.OSV", duration=60.0, lenses=2, audio=True, shot="2026-04-05T03:10:00"),
+             dict(id="t_b", name="CAM_20260404200000_0002_D.OSV", path="b.OSV", duration=600.0, lenses=2, audio=False, shot="2026-04-04T20:00:00"),
+             dict(id="t_d", name="CAM_20260404210000_0004_D.OSV", path="d.OSV", duration=1.0, lenses=2, audio=True, shot="2026-04-04T21:00:00"),
+             dict(id="t_a", name="CAM_20260403150000_0001_D.OSV", path="a.OSV", duration=60.0, lenses=2, audio=True, shot="2026-04-03T15:00:00")]
+    saved = analysis.motion, analysis.transcript_path, look.holder_track
+    try:
+        analysis.motion = lambda c, rate=10.0: {"rate": rate, "speed": [5.0] * int(c["duration"] * rate),
+                                                "shake": [1.0] * int(c["duration"] * rate)}
+        analysis.transcript_path = lambda cid: os.path.join(os.path.dirname(__file__), "no_such_transcript.json")
+        look.holder_track = lambda *a, **k: []
+        steps = []
+        p = autoedit.plan(clips, seconds=60, captions="burn", progress=lambda i, n, st: steps.append(st))
+    finally:
+        analysis.motion, analysis.transcript_path, look.holder_track = saved
+    ids = [cu["clip_id"] for cu in p["cuts"]]
+    assert set(ids) == {"t_a", "t_b", "t_c"}, ids
+    order = {"t_a": 0, "t_b": 1, "t_c": 2}
+    assert [order[i] for i in ids] == sorted(order[i] for i in ids)                  # capture order
+    assert all(a["start"] < b["start"] for a, b in zip(p["cuts"], p["cuts"][1:]) if a["clip_id"] == b["clip_id"])
+    b_share = ids.count("t_b") / len(ids)
+    assert abs(b_share - 600 / 720) <= 0.15, b_share                                 # proportional to footage
+    assert 0.8 * 60 <= p["seconds"] <= 60 + 6.0, p["seconds"]
+    assert p["skipped"] and p["skipped"][0]["clip"] == "t_d"
+    assert sorted(p["missing_transcripts"]) == ["t_a", "t_c"]                        # t_b has no audio
+    assert any("transcript" in w for w in p["warnings"]) and any("no subtitles" in w for w in p["warnings"])
+    assert [g["period"] for g in p["coverage"]] == ["4/3 午", "4/4 晚", "4/5 凌晨"]
+    assert len(p["specs"]) == len(p["cuts"]) and p["specs"][0]["keys"][0]["t"] == 0
+    assert p["cuts"][0]["keys"][0]["t"] == p["cuts"][0]["start"]                     # cut keys are in clip time
+    assert "analysing" in steps and "framing" in steps
+    hl = None
+    try:
+        analysis.motion = lambda c, rate=10.0: {"rate": rate, "speed": [5.0] * int(c["duration"] * rate),
+                                                "shake": [1.0] * int(c["duration"] * rate)}
+        analysis.transcript_path = lambda cid: os.path.join(os.path.dirname(__file__), "no_such_transcript.json")
+        hl = autoedit.plan(clips, seconds=20, coverage="highlights")
+    finally:
+        analysis.motion, analysis.transcript_path, look.holder_track = saved
+    assert hl["cuts"] and hl["coverage_mode"] == "highlights"
+
+
 # ---------------------------------------------------------------- captions and title cards
 def test_srt_time_and_caption_mapping():
     import shutil, subprocess, tempfile

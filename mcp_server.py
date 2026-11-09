@@ -1,37 +1,114 @@
 """MCP server: lets an AI assistant browse, look around in, and cut 360 OSV footage.
 
-Runs over stdio (JSON-RPC 2.0, one message per line) and talks to a running osvcut studio
-(`python server.py`), default http://127.0.0.1:8360 (override with OSVCUT_URL).
+Runs over stdio (JSON-RPC 2.0, one message per line) and talks to the osvcut studio (`python server.py`),
+default http://127.0.0.1:8360 (override with OSVCUT_URL).  If the studio is not running, the first call starts it
+(library folders from OSVCUT_ROOTS, ';'-separated, default E:\\Videos; Python from OSVCUT_PYTHON, default this one;
+OSVCUT_AUTOSTART=0 turns this off).  The studio keeps running after the MCP server exits.
 
     claude mcp add osvcut -- python /path/to/osvcut/mcp_server.py
 
-Tools: list_clips, clip_overview, look, track_subject, render_cut, render_sequence, job_status.
+Tools: list_clips, search_speech, transcribe, clip_overview, look, holder_keys, track_subject, plan_edit, auto_edit,
+render_cut, render_sequence, job_status.
 Angles: yaw 0 = camera forward, +90 = right, ±180 = behind; pitch +90 = up. Times are seconds in the clip.
 """
 import base64
 import json
 import os
+import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
 BASE = os.environ.get("OSVCUT_URL", "http://127.0.0.1:8360").rstrip("/")
 HERE = os.path.dirname(os.path.abspath(__file__))
+AUTOSTART = os.environ.get("OSVCUT_AUTOSTART", "1") != "0"
+ROOTS = [r for r in os.environ.get("OSVCUT_ROOTS", r"E:\Videos").split(";") if r.strip()]
+PYTHON = os.environ.get("OSVCUT_PYTHON") or sys.executable
 
 
 # ---------------------------------------------------------------- http helpers
+def _refused(e):
+    r = getattr(e, "reason", e)
+    return isinstance(r, ConnectionRefusedError) or getattr(r, "winerror", None) == 10061 or getattr(r, "errno", None) in (61, 111, 10061)
+
+
+def _start_command(port):
+    roots = " ".join(f'"{r}"' for r in ROOTS)
+    return f'cd "{HERE}" && "{PYTHON}" server.py {port} {roots}'
+
+
+def _ensure_studio():
+    """Start the studio when nothing listens at BASE (local URLs only); wait up to 30 s for it to answer."""
+    u = urllib.parse.urlparse(BASE)
+    port = str(u.port or 80)
+    if not AUTOSTART or u.hostname not in ("127.0.0.1", "localhost"):
+        why = "autostart is off (OSVCUT_AUTOSTART=0)" if not AUTOSTART else "it is not a local address"
+        raise RuntimeError(f"osvcut studio is not running at {BASE} and was not started ({why}). "
+                           f"Start it with: {_start_command(port)}")
+    os.makedirs(os.path.join(HERE, "cache"), exist_ok=True)
+    log = open(os.path.join(HERE, "cache", "studio.log"), "ab")
+    kw = {}
+    if os.name == "nt":
+        kw["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kw["start_new_session"] = True
+    try:
+        p = subprocess.Popen([PYTHON, "server.py", port, *ROOTS], cwd=HERE, stdin=subprocess.DEVNULL, stdout=log,
+                             stderr=subprocess.STDOUT, **kw)
+    except OSError as e:
+        raise RuntimeError(f"osvcut studio is not running at {BASE} and could not be started: {e}. "
+                           f"Start it with: {_start_command(port)}")
+    t_end = time.time() + 30
+    while time.time() < t_end:
+        if p.poll() is not None:
+            break
+        try:
+            with urllib.request.urlopen(BASE + "/api/jobs", timeout=3):
+                return
+        except (urllib.error.URLError, OSError):
+            time.sleep(1)
+    tail = ""
+    try:
+        tail = open(os.path.join(HERE, "cache", "studio.log"), encoding="utf8", errors="replace").read()[-400:].strip()
+    except OSError:
+        pass
+    raise RuntimeError(f"osvcut studio is not running at {BASE} and could not be started "
+                       f"({'it exited' if p.poll() is not None else 'no answer within 30 s'}"
+                       + (f"; log: {tail}" if tail else "") + f"). Start it with: {_start_command(port)}")
+
+
+def _call(fn):
+    try:
+        return fn()
+    except urllib.error.HTTPError:
+        raise
+    except urllib.error.URLError as e:
+        if not _refused(e):
+            raise
+    _ensure_studio()                       # nothing listening: start the studio once, then retry
+    return fn()
+
+
 def _get(path, raw=False, timeout=300):
-    with urllib.request.urlopen(BASE + path, timeout=timeout) as r:
-        data = r.read()
+    def go():
+        with urllib.request.urlopen(BASE + path, timeout=timeout) as r:
+            return r.read()
+    data = _call(go)
     return data if raw else json.loads(data.decode("utf8"))
 
 
 def _post(path, body, timeout=60):
-    req = urllib.request.Request(BASE + path, data=json.dumps(body).encode("utf8"),
-                                 headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode("utf8"))
+    def go():
+        req = urllib.request.Request(BASE + path, data=json.dumps(body).encode("utf8"),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:            # the studio answers errors as JSON {"error": ...}
+            return e.read()
+    return json.loads(_call(go).decode("utf8"))
 
 
 def _clip(cid):
@@ -55,17 +132,51 @@ def _text(t):
 
 
 # ---------------------------------------------------------------- tools
+def _match(clips, query="", category=""):
+    q = (query or "").lower()
+    return [c for c in clips if (not category or category in (c.get("category") or ""))
+            and (not q or q in f"{c.get('event', '')} {c['name']} {c.get('shot', '')}".lower())]
+
+
+def _hms(s):
+    s = int(round(s or 0))
+    return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}" if s >= 3600 else _fmt(s)
+
+
+def _resolve(clip_ids=None, query=""):
+    """Clip ids from an explicit list or a list_clips-style query."""
+    if clip_ids:
+        return list(clip_ids)
+    if not query:
+        raise ValueError("give clip_ids or query")
+    ids = [c["id"] for c in _match(_get("/api/library")["clips"], query)]
+    if not ids:
+        raise ValueError(f"no clips match '{query}'")
+    return ids
+
+
+def _untranscribed(clips):
+    return [c["id"] for c in clips if c.get("audio") and c.get("duration", 0) > 1 and "speech" not in c]
+
+
 def list_clips(query="", category="", limit=30):
     lib = _get("/api/library")
-    q = (query or "").lower()
-    out = []
-    for c in lib["clips"]:
-        if category and category not in (c.get("category") or ""):
-            continue
-        if q and q not in f"{c.get('event', '')} {c['name']} {c.get('shot', '')}".lower():
-            continue
-        out.append(c)
+    out = _match(lib["clips"], query, category)
     lines = [f"{len(out)} clips match (showing {min(limit, len(out))}); library has {len(lib['clips'])}."]
+    if lib.get("scanning"):
+        lines.append(f"Library scan still running ({lib.get('scanned', 0)}/{lib.get('total', 0)} files): results may be incomplete.")
+    if out:
+        days = {}
+        for c in sorted(out, key=lambda c: c.get("shot") or ""):
+            d = (c.get("shot") or "unknown")[:10]
+            n, s = days.get(d, (0, 0.0))
+            days[d] = (n + 1, s + (c.get("duration") or 0))
+        tx = _untranscribed(out)
+        lines.append(f"Total footage {_hms(sum(c.get('duration') or 0 for c in out))}; by day: "
+                     + " · ".join(f"{d} {n} clips {_hms(s)}" for d, (n, s) in days.items()))
+        lines.append(f"No audio: {sum(not c.get('audio') for c in out)} · not transcribed: {len(tx)}"
+                     + (" (transcribe them for talk segments, captions and search_speech)" if tx else "")
+                     + f" · shorter than 2 s: {sum((c.get('duration') or 0) < 2 for c in out)}")
     for c in out[:limit]:
         flags = []
         if c.get("previews"):
@@ -215,9 +326,16 @@ def render_cut(clip_id, start, end, keys=None, aspect="16:9", fps=30, speed=1.0,
                   + (f" at {speed}x" if speed != 1 else "") + f", {size[0]}x{size[1]}). Poll job_status.")]
 
 
-def render_sequence(cuts, title="", aspect="16:9", fps=30, projection="flat", transition="cut", transition_seconds=0.5):
+def render_sequence(cuts, title="", aspect="16:9", fps=30, projection="flat", transition="cut", transition_seconds=0.5,
+                    captions="burn"):
     size = {"16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:5": [1080, 1350], "2.39:1": [1920, 816]}.get(aspect, [1920, 1080])
-    specs = [_spec(cu["clip_id"], cu["start"], cu["end"], cu.get("keys"), size, fps, cu.get("speed", 1.0)) for cu in cuts]
+    specs = []
+    for cu in cuts:
+        sp = _spec(cu["clip_id"], cu["start"], cu["end"], cu.get("keys"), size, fps, cu.get("speed", 1.0))
+        if captions in ("burn", "soft") and cu.get("captions"):       # e.g. the captions of a plan_edit cut
+            sp.update(captions=[dict(start=float(x["start"]), end=float(x["end"]), text=str(x["text"])) for x in cu["captions"]],
+                      captions_mode=captions)
+        specs.append(sp)
     if projection == "360":
         size = [3840, 1920]
         for sp in specs:
@@ -229,12 +347,98 @@ def render_sequence(cuts, title="", aspect="16:9", fps=30, projection="flat", tr
     return [_text(f"sequence job {j['id']} queued with {len(specs)} cuts. Poll job_status.")]
 
 
-def auto_edit(clip_ids, seconds=30, aspect="16:9", transition="fade", captions="burn", title=""):
-    j = _post("/api/jobs", dict(kind="autoedit", clip_ids=list(clip_ids), seconds=float(seconds), aspect=aspect,
-                                transition=transition, captions=captions, title=title or None))
+def transcribe(clip_ids=None, query="", wait_seconds=0):
+    ids = _resolve(clip_ids, query)
+    r = _post("/api/transcribe_all", dict(clip_ids=ids))
+    if r.get("error"):
+        raise ValueError(r["error"])
+    msg = (f"queued {r.get('queued', 0)} of {len(ids)} clips for transcription (skipped: {r.get('skipped_done', 0)} already done, "
+           f"{r.get('skipped_no_audio', 0)} without audio or < 1 s, {r.get('skipped_busy', 0)} already being transcribed).")
+    if not r.get("job"):
+        return [_text(msg + " Nothing to wait for.")]
+    if wait_seconds:
+        j = _wait_job(r["job"], wait_seconds)
+        msg += f"\njob {r['job']}: {j['status'] if j else 'unknown'} {(j or {}).get('progress', 0) * 100:.0f}%"
+        if j and j["status"] == "done":
+            msg += ". Transcripts are ready: plan_edit / auto_edit can now use talk segments and captions."
+        elif j and j.get("error"):
+            msg += f"\nerror: {j['error']}"
+        else:
+            msg += f". Still running: job_status('{r['job']}', wait_seconds=...)."
+    else:
+        msg += f" job {r['job']}; about 5-20 s per minute of audio. Wait with job_status('{r['job']}', wait_seconds=...)."
+    return [_text(msg)]
+
+
+def _fmt_plan(p, full):
+    """Readable plan: header, coverage, cut list, warnings; with full, the cuts JSON for render_sequence."""
+    rows = p.get("cuts") if full else p.get("picked")
+    rows = rows or []
+    span = " → ".join(s[:16] for s in p["span"]) + ", " if p.get("span") else ""
+    lines = [f"Plan for {p.get('n_clips', 0)} clips ({span}{_hms(p.get('footage_s'))} footage) → {p.get('seconds', 0)} s, "
+             f"{len(rows)} cuts, coverage {p.get('coverage_mode', 'even')}"]
+    if p.get("coverage"):
+        lines.append("Coverage: " + " · ".join(f"{g['period']} {g['cuts']} cuts ({g['cut_share'] * 100:.0f}% of cuts / "
+                                               f"{g['footage_share'] * 100:.0f}% of footage)" for g in p["coverage"]))
+    kinds = {}
+    for r in rows:
+        kinds[r["kind"]] = kinds.get(r["kind"], 0) + 1
+    if kinds:
+        lines.append("Kinds: " + " · ".join(f"{k} {n}" for k, n in kinds.items()))
+    if rows:
+        lines.append("Cuts:")
+        for i, r in enumerate(rows[:40]):
+            cid = r.get("clip_id") or r.get("clip")
+            lines.append(f"  {i + 1:2d}. {(r.get('shot') or '')[:16]} {cid} {r['start']:.1f}-{r['end']:.1f}s {r['kind']}"
+                         + (" [captions]" if r.get("captions") else "")
+                         + (f"  {r['text'][:60]}" if r.get("text") and r["kind"] == "talk" else ""))
+        if len(rows) > 40:
+            lines.append(f"  ... {len(rows) - 40} more")
+    if p.get("warnings"):
+        lines.append("Warnings:")
+        lines += [f"  - {w}" for w in p["warnings"]]
+    if p.get("missing_transcripts"):
+        ids = p["missing_transcripts"]
+        lines.append(f"  → transcribe(clip_ids={json.dumps(ids[:80])}{' + more' if len(ids) > 80 else ''}) then plan again, "
+                     "or auto_edit(..., transcribe_missing=true).")
+    if full and rows:
+        lines.append("cuts (pass to render_sequence as is, or edit first; keys and captions are in clip seconds) = "
+                     + json.dumps(rows, ensure_ascii=False, separators=(",", ":")))
+    return "\n".join(lines)
+
+
+def plan_edit(clip_ids=None, query="", seconds=60, aspect="16:9", captions="burn", coverage="even", min_clip_seconds=2.0,
+              wait_seconds=120):
+    ids = _resolve(clip_ids, query)
+    j = _post("/api/jobs", dict(kind="plan", clip_ids=ids, seconds=float(seconds), aspect=aspect, captions=captions,
+                                coverage=coverage, min_clip_seconds=float(min_clip_seconds)))
     if "id" not in j:
         raise ValueError(j.get("error") or "request failed")
-    return [_text(f"auto edit started: job {j['id']} -> {j.get('output')}. Use job_status to wait for it.")]
+    if wait_seconds:
+        j = _wait_job(j["id"], wait_seconds) or j
+    if j["status"] != "done":
+        return [_text(f"plan job {j['id']} is {j['status']} ({j.get('stage') or ''})"
+                      + (f": {j['error']}" if j.get("error") else f"; wait with job_status('{j['id']}', wait_seconds=...)."))]
+    return [_text(_fmt_plan(_get(j["output"]), True))]
+
+
+def auto_edit(clip_ids=None, query="", seconds=60, aspect="16:9", transition="fade", captions="burn", coverage="even",
+              title="", music_path="", transcribe_missing=False, min_clip_seconds=2.0):
+    ids = _resolve(clip_ids, query)
+    j = _post("/api/jobs", dict(kind="autoedit", clip_ids=ids, seconds=float(seconds), aspect=aspect, transition=transition,
+                                captions=captions, coverage=coverage, title=title or None, music_path=music_path or None,
+                                transcribe_missing=bool(transcribe_missing), min_clip_seconds=float(min_clip_seconds)))
+    if "id" not in j:
+        raise ValueError(j.get("error") or "request failed")
+    msg = (f"auto edit job {j['id']} started ({j['status']}); it plans, then renders. "
+           f"Use job_status('{j['id']}', wait_seconds=...) - planning takes ~1-3 s per clip, rendering a few minutes.")
+    if not transcribe_missing:
+        lib = {c["id"]: c for c in _get("/api/library")["clips"]}
+        tx = _untranscribed([lib[i] for i in ids if i in lib])
+        if tx:
+            msg += (f"\nNote: {len(tx)} of {len(ids)} clips are not transcribed, so they give no talk segments"
+                    + (" or captions" if captions != "off" else "") + ". Pass transcribe_missing=true (or run transcribe first) to include them.")
+    return [_text(msg)]
 
 
 def job_status(job_id, wait_seconds=0):
@@ -242,10 +446,16 @@ def job_status(job_id, wait_seconds=0):
     if not j:
         return [_text(f"no job {job_id}")]
     path = os.path.join(HERE, j["output"].lstrip("/").replace("/", os.sep)) if j.get("output") else ""
-    return [_text(f"{j['kind']} '{j['title']}': {j['status']} {j['progress'] * 100:.0f}%"
-                  + (f", eta {j['eta']:.0f}s" if j.get("eta") and j["status"] == "running" else "")
-                  + (f"\noutput: {path}" if j["status"] == "done" else "")
-                  + (f"\nerror: {j['error']}" if j.get("error") else ""))]
+    msg = (f"{j['kind']} '{j['title']}': {j['status']} {j['progress'] * 100:.0f}%"
+           + (f" ({j['stage']})" if j.get("stage") and j["status"] in ("planning", "transcribing") else "")
+           + (f", eta {j['eta']:.0f}s" if j.get("eta") and j["status"] == "running" else "")
+           + (f"\noutput: {path}" if j["status"] == "done" and j["kind"] != "plan" else "")
+           + (f"\nerror: {j['error']}" if j.get("error") else ""))
+    if j["kind"] == "plan" and j["status"] == "done":
+        msg += "\n" + _fmt_plan(_get(j["output"]), True)
+    elif j.get("plan"):
+        msg += "\n" + _fmt_plan(j["plan"], False)
+    return [_text(msg)]
 
 
 TOOLS = {
@@ -284,20 +494,34 @@ TOOLS = {
                     "projection": {"type": "string", "enum": ["flat", "360"], "default": "flat",
                                    "description": "flat = reframed video following keys; 360 = full levelled 360 video (YouTube/VR), keys ignored"}},
                    ["clip_id", "start", "end"]),
-    "render_sequence": (render_sequence, "Export several cuts (possibly from different clips) joined into one film. cuts = [{clip_id, start, end, keys?, speed?}].",
+    "render_sequence": (render_sequence, "Export several cuts (possibly from different clips) joined into one film. cuts = [{clip_id, start, end, keys?, speed?, captions?}] (the `cuts` of plan_edit fit as is).",
                         {"cuts": {"type": "array", "items": {"type": "object"}}, "title": {"type": "string"},
+                         "captions": {"type": "string", "enum": ["off", "burn", "soft"], "default": "burn", "description": "how to show the captions a cut carries"},
                          "projection": {"type": "string", "enum": ["flat", "360"], "default": "flat"},
                          "transition": {"type": "string", "enum": ["cut", "fade", "fadeblack", "wipeleft", "circleopen"], "default": "cut"},
                          "transition_seconds": {"type": "number", "default": 0.5},
                          "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5", "2.39:1"], "default": "16:9"}, "fps": {"type": "integer", "default": 30}},
                         ["cuts"]),
-    "auto_edit": (auto_edit, "One-click film from several clips: picks talk segments (framed on the selfie-stick holder, with captions) and steady scenery (slow pan), joins them with transitions. Good first draft; refine with render_sequence.",
-                  {"clip_ids": {"type": "array", "items": {"type": "string"}}, "seconds": {"type": "number", "default": 30},
+    "transcribe": (transcribe, "Speech-to-text for clips that have no transcript yet (needed for talk segments, captions and search_speech). Give clip_ids or a list_clips-style query. Returns a job id; wait_seconds > 0 waits for it.",
+                   {"clip_ids": {"type": "array", "items": {"type": "string"}}, "query": {"type": "string"},
+                    "wait_seconds": {"type": "integer", "default": 0}}, []),
+    "plan_edit": (plan_edit, "Plan a film from many clips WITHOUT rendering: returns the picked cuts in capture order, how they cover each day / part of day, warnings (missing transcripts, skipped clips) and a `cuts` JSON you can edit and pass to render_sequence. coverage='even' spreads cuts over the whole footage timeline in proportion to how much was filmed; 'highlights' takes the best-scoring segments anywhere.",
+                  {"clip_ids": {"type": "array", "items": {"type": "string"}}, "query": {"type": "string", "description": "instead of clip_ids: substring of event folder, file name or date"},
+                   "seconds": {"type": "number", "default": 60}, "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5"], "default": "16:9"},
+                   "captions": {"type": "string", "enum": ["off", "burn", "soft"], "default": "burn"},
+                   "coverage": {"type": "string", "enum": ["even", "highlights"], "default": "even"},
+                   "min_clip_seconds": {"type": "number", "default": 2}, "wait_seconds": {"type": "integer", "default": 120}}, []),
+    "auto_edit": (auto_edit, "One-click film from several clips (= plan_edit + render in one background job; returns at once): talk segments framed on the selfie-stick holder with captions, steady scenery with a slow pan, joined with transitions. Follow it with job_status. Use plan_edit first to review the cuts.",
+                  {"clip_ids": {"type": "array", "items": {"type": "string"}}, "query": {"type": "string", "description": "instead of clip_ids: substring of event folder, file name or date"},
+                   "seconds": {"type": "number", "default": 60},
                    "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5"], "default": "16:9"},
                    "transition": {"type": "string", "enum": ["cut", "fade", "fadeblack", "wipeleft", "circleopen"], "default": "fade"},
-                   "captions": {"type": "string", "enum": ["off", "burn", "soft"], "default": "burn"}, "title": {"type": "string"}},
-                  ["clip_ids"]),
-    "job_status": (job_status, "Status of a render/track job; wait_seconds > 0 blocks until it finishes (up to that long).",
+                   "captions": {"type": "string", "enum": ["off", "burn", "soft"], "default": "burn"},
+                   "coverage": {"type": "string", "enum": ["even", "highlights"], "default": "even"}, "title": {"type": "string"},
+                   "music_path": {"type": "string", "description": "local audio file (mp3/m4a/aac/wav/flac/ogg) for background music; cuts are snapped to its beats"},
+                   "transcribe_missing": {"type": "boolean", "default": False, "description": "transcribe clips without a transcript first (slower, but adds talk segments and captions)"},
+                   "min_clip_seconds": {"type": "number", "default": 2}}, []),
+    "job_status": (job_status, "Status of a job (render, track, transcription, plan, auto edit); wait_seconds > 0 blocks until it finishes (up to that long). Plan and auto-edit jobs also show their cuts, coverage and warnings.",
                    {"job_id": {"type": "string"}, "wait_seconds": {"type": "integer", "default": 0}}, ["job_id"]),
 }
 
@@ -306,7 +530,7 @@ def handle(msg):
     method, mid = msg.get("method"), msg.get("id")
     if method == "initialize":
         return dict(protocolVersion=msg.get("params", {}).get("protocolVersion", "2024-11-05"),
-                    capabilities={"tools": {}}, serverInfo={"name": "osvcut", "version": "0.1"})
+                    capabilities={"tools": {}}, serverInfo={"name": "osvcut", "version": "0.2"})
     if method == "ping":
         return {}
     if method == "tools/list":

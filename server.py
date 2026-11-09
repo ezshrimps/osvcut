@@ -6,6 +6,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -118,6 +119,130 @@ def new_job(kind, title, spec, clip_id=None, cmd=None, output=None):
     JOBS[jid] = job
     JOBQ.put(jid)
     return job
+
+
+def public(job):
+    return {k: v for k, v in job.items() if not k.startswith("_")}
+
+
+def placeholder_job(kind, title):
+    """A job that is planned in a background thread before (for autoedit) it gets a command and joins the queue."""
+    jid = uuid.uuid4().hex[:10]
+    job = dict(id=jid, kind=kind, title=title, clip=None, status="planning", progress=0.0, stage="planning",
+               created=time.time(), started=time.time(), finished=None, output=None, spec=None, cmd=None, error=None, eta=None)
+    JOBS[jid] = job
+    return job
+
+
+def make_sequence(b):
+    """Validate a sequence body and write its spec; returns (cmd, dst, title).  Raises ValueError."""
+    specs = b.get("specs") or []
+    if not specs or any(not os.path.exists(x.get("src", "")) for x in specs):
+        raise ValueError("empty sequence or missing source")
+    title = (b.get("title") or f"剪辑台 · {len(specs)} 段").strip()
+    safe = re.sub(r'[\\/:*?"<>|]+', "_", title)[:60]
+    dst = os.path.join(EXPORTS, f"{time.strftime('%Y%m%d-%H%M%S')}_{safe}.mp4")
+    jid_spec = os.path.join(SPECS, "seq_" + uuid.uuid4().hex[:8] + ".json")
+    music = b.get("music") or None
+    if music and not (os.path.abspath(music["path"]).startswith(os.path.abspath(MUSIC)) and os.path.exists(music["path"])):
+        raise ValueError("music file not found")
+    tr = b.get("transition") or None
+    if tr and tr.get("type") not in ("fade", "fadeblack", "wipeleft", "circleopen"):
+        tr = None
+    json.dump(dict(specs=specs, dst=dst, size=b.get("size"), fps=b.get("fps"), music=music, transition=tr, title_card=b.get("title_card")),
+              open(jid_spec, "w", encoding="utf8"), ensure_ascii=False, indent=1)
+    json.dump(dict(title=title, size=b.get("size") or specs[0].get("size"), sequence=specs),
+              open(dst[:-4] + ".json", "w", encoding="utf8"), ensure_ascii=False, indent=1)
+    return [sys.executable, "-u", "sequence.py", jid_spec], dst, title
+
+
+def import_music(path):
+    """Copy a local audio file into cache/music (where sequences may read music from).  Raises ValueError."""
+    if not re.search(r"\.(mp3|m4a|aac|wav|flac|ogg)$", path or "", re.I):
+        raise ValueError("unsupported audio type")
+    if not os.path.isfile(path):
+        raise ValueError(f"music file not found: {path}")
+    if os.path.getsize(path) > 300 * 1024 * 1024:
+        raise ValueError("music file too large")
+    name = re.sub(r'[\\/:*?"<>|]+', "_", os.path.basename(path))[-80:]
+    dst = os.path.join(MUSIC, f"{uuid.uuid4().hex[:8]}_{name}")
+    shutil.copyfile(path, dst)
+    return dict(path=dst, name=name)
+
+
+def transcribe_items(clips):
+    """Clips that still need a transcript -> (items for analysis.py transcript_batch, n already done, n without audio)."""
+    busy = {j["clip"] for j in JOBS.values() if j["kind"] == "transcript" and j["status"] in ("queued", "running")}
+    for j in JOBS.values():
+        if j["kind"] == "transcript_batch" and j["status"] in ("queued", "running"):
+            busy |= set(j.get("_clips", ()))
+    items, done, no_audio = [], 0, 0
+    for c in clips:
+        if not c.get("audio") or c.get("duration", 0) <= 1:
+            no_audio += 1
+        elif os.path.exists(analysis.transcript_path(c["id"])):
+            done += 1
+        elif c["id"] not in busy:
+            items.append(dict(src=c["path"], out=analysis.transcript_path(c["id"]), clip=c["id"]))
+    return items, done, no_audio
+
+
+def plan_summary(plan):
+    return {k: plan.get(k) for k in ("seconds", "n_clips", "footage_s", "span", "coverage_mode", "picked", "coverage",
+                                      "warnings", "missing_transcripts", "skipped")}
+
+
+def plan_then_queue(job, clips, b):
+    """Background part of an autoedit / plan job: optional transcription, planning, then (autoedit) the render."""
+    import autoedit
+    try:
+        if b.get("transcribe_missing"):
+            items, _, _ = transcribe_items(clips)
+            if items:
+                job["status"] = job["stage"] = "transcribing"
+                lst = os.path.join(SPECS, "txbatch_" + uuid.uuid4().hex[:8] + ".json")
+                json.dump(items, open(lst, "w", encoding="utf8"), ensure_ascii=False)
+                p = subprocess.Popen([sys.executable, "-u", "analysis.py", "transcript_batch", lst], cwd=HERE,
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf8", errors="replace")
+                job["_proc"] = p
+                for line in p.stdout:
+                    m = re.match(r"progress (\d+)/(\d+)", line)
+                    if m:
+                        job["progress"] = int(m.group(1)) / max(1, int(m.group(2)))
+                p.wait()
+                job.pop("_proc", None)
+        if job["status"] == "cancelled":
+            return
+        job["status"], job["stage"], job["progress"] = "planning", "planning", 0.0
+
+        def progress(i, n, stage):
+            job["stage"] = f"{stage} {i}/{n}"
+            job["progress"] = (i / max(n, 1)) * (0.8 if stage == "analysing" else 0.2) + (0.8 if stage == "framing" else 0.0)
+        plan = autoedit.plan(clips, seconds=float(b.get("seconds", 30)), aspect=b.get("aspect", "16:9"),
+                             transition=b.get("transition", "fade"), captions=b.get("captions", "burn"), music=b.get("music"),
+                             coverage=b.get("coverage", "even"), min_clip_seconds=float(b.get("min_clip_seconds", 2.0)),
+                             progress=progress)
+        plan_file = os.path.join(SPECS, f"plan_{job['id']}.json")
+        json.dump({k: v for k, v in plan.items() if k != "specs"}, open(plan_file, "w", encoding="utf8"), ensure_ascii=False, indent=1)
+        job["plan"], job["plan_file"] = plan_summary(plan), rel_url(plan_file)
+        if job["status"] == "cancelled":
+            return
+        if job["kind"] == "plan":
+            job.update(status="done", stage="done", progress=1.0, output=rel_url(plan_file), finished=time.time())
+            return
+        if not plan["specs"]:
+            raise ValueError("no talk or steady segments found in these clips"
+                             + ("; " + " ".join(plan["warnings"]) if plan["warnings"] else ""))
+        music = b.get("music")
+        if plan.get("beat") and music:
+            music = dict(music, start=plan["beat"]["phase"])
+        cmd, dst, _ = make_sequence(dict(specs=plan["specs"], size=plan["size"], fps=plan["fps"], music=music,
+                                         transition=plan.get("transition"), title=job["title"]))
+        job.update(cmd=cmd, output=rel_url(dst), status="queued", stage=None, progress=0.0, started=None)
+        JOBQ.put(job["id"])
+    except Exception as e:                                       # noqa: BLE001
+        job.update(status="failed", stage="failed", finished=time.time(),
+                   error=str(e) if isinstance(e, ValueError) else traceback.format_exc()[-800:])
 
 
 def worker():
@@ -405,42 +530,28 @@ class Handler(RangeHandler):
                           open(spec["dst"][:-4] + ".json", "w", encoding="utf8"), ensure_ascii=False, indent=1)
                 job = new_job("export", title, spec, cid)
                 return self._json({k: v for k, v in job.items() if not k.startswith("_")})
-            if kind == "autoedit":
-                # one-click edit: pick highlights from the given clips, frame them, then run as a sequence
-                import autoedit
+            if kind in ("autoedit", "plan"):
+                # one-click edit / reviewable plan: planning runs in the background (it analyses every clip), so the
+                # request returns at once with a job that goes planning -> (queued -> running ->) done
                 clips = [LIB.get(cid) for cid in (b.get("clip_ids") or [])]
-                clips = [c for c in clips if c and c.get("lenses") == 2]
+                clips = [c for c in clips if c]
                 if not clips:
                     return self._json({"error": "no usable clips"}, 400)
-                plan = autoedit.plan(clips, seconds=float(b.get("seconds", 30)), aspect=b.get("aspect", "16:9"),
-                                     transition=b.get("transition", "fade"), captions=b.get("captions", "burn"),
-                                     music=b.get("music"))
-                if not plan["specs"]:
-                    return self._json({"error": "no talk or steady segments found in these clips"}, 400)
-                if plan.get("beat") and b.get("music"):
-                    b["music"] = dict(b["music"], start=plan["beat"]["phase"])
-                b = dict(kind="sequence", specs=plan["specs"], size=plan["size"], fps=plan["fps"], music=b.get("music"),
-                         transition=plan.get("transition"), title=b.get("title") or f"一键成片 · {len(plan['specs'])} 段")
-                kind = "sequence"
+                if b.get("music_path"):
+                    try:
+                        b["music"] = import_music(b["music_path"])
+                    except ValueError as e:
+                        return self._json({"error": str(e)}, 400)
+                job = placeholder_job(kind, b.get("title") or (f"一键成片 · {len(clips)} 段素材" if kind == "autoedit"
+                                                               else f"剪辑方案 · {len(clips)} 段素材"))
+                threading.Thread(target=plan_then_queue, args=(job, clips, b), daemon=True).start()
+                return self._json(public(job))
             if kind == "sequence":
-                specs = b.get("specs") or []
-                if not specs or any(not os.path.exists(x.get("src", "")) for x in specs):
-                    return self._json({"error": "empty sequence or missing source"}, 400)
-                title = (b.get("title") or f"剪辑台 · {len(specs)} 段").strip()
-                safe = re.sub(r'[\\/:*?"<>|]+', "_", title)[:60]
-                dst = os.path.join(EXPORTS, f"{time.strftime('%Y%m%d-%H%M%S')}_{safe}.mp4")
-                jid_spec = os.path.join(SPECS, "seq_" + uuid.uuid4().hex[:8] + ".json")
-                music = b.get("music") or None
-                if music and not (os.path.abspath(music["path"]).startswith(os.path.abspath(MUSIC)) and os.path.exists(music["path"])):
-                    return self._json({"error": "music file not found"}, 400)
-                tr = b.get("transition") or None
-                if tr and tr.get("type") not in ("fade", "fadeblack", "wipeleft", "circleopen"):
-                    tr = None
-                json.dump(dict(specs=specs, dst=dst, size=b.get("size"), fps=b.get("fps"), music=music, transition=tr, title_card=b.get("title_card")),
-                          open(jid_spec, "w", encoding="utf8"), ensure_ascii=False, indent=1)
-                json.dump(dict(title=title, size=b.get("size") or specs[0].get("size"), sequence=specs),
-                          open(dst[:-4] + ".json", "w", encoding="utf8"), ensure_ascii=False, indent=1)
-                job = new_job("sequence", title, None, None, cmd=[sys.executable, "-u", "sequence.py", jid_spec], output=dst)
+                try:
+                    cmd, dst, title = make_sequence(b)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+                job = new_job("sequence", title, None, None, cmd=cmd, output=dst)
                 return self._json({k: v for k, v in job.items() if not k.startswith("_")})
             return self._json({"error": "unknown kind"}, 400)
         if p == "/api/debug/snapshot":
@@ -530,19 +641,23 @@ class Handler(RangeHandler):
                     pass
             return self._json({"ok": True, "removed": removed})
         if p == "/api/transcribe_all":
-            if any(j["kind"] == "transcript_batch" and j["status"] in ("queued", "running") for j in JOBS.values()):
-                return self._json({"ok": True, "queued": 0, "note": "already running"})
-            busy = {j["clip"] for j in JOBS.values() if j["kind"] == "transcript" and j["status"] in ("queued", "running")}
-            items = [dict(src=c["path"], out=analysis.transcript_path(c["id"])) for c in LIB.listing()
-                     if c.get("audio") and c.get("duration", 0) > 1 and not os.path.exists(analysis.transcript_path(c["id"]))
-                     and c["id"] not in busy]
+            # body {clip_ids?: [...]}: only those clips (default: the whole library)
+            ids = self._body().get("clip_ids") or None
+            active = [j for j in JOBS.values() if j["kind"] == "transcript_batch" and j["status"] in ("queued", "running")]
+            if active and not ids:
+                return self._json({"ok": True, "queued": 0, "note": "already running", "job": active[0]["id"]})
+            clips = [c for c in (LIB.get(i) for i in ids) if c] if ids else LIB.listing()
+            items, done, no_audio = transcribe_items(clips)
+            res = dict(ok=True, queued=len(items), skipped_done=done, skipped_no_audio=no_audio,
+                       skipped_busy=len(clips) - len(items) - done - no_audio)
             if not items:
-                return self._json({"ok": True, "queued": 0})
+                return self._json(res)
             lst = os.path.join(SPECS, "txbatch_" + uuid.uuid4().hex[:8] + ".json")
             json.dump(items, open(lst, "w", encoding="utf8"), ensure_ascii=False)
-            new_job("transcript_batch", f"批量语音转写 · {len(items)} 段", None, None,
-                    cmd=[sys.executable, "-u", "analysis.py", "transcript_batch", lst], output=lst)
-            return self._json({"ok": True, "queued": len(items)})
+            job = new_job("transcript_batch", f"批量语音转写 · {len(items)} 段", None, None,
+                          cmd=[sys.executable, "-u", "analysis.py", "transcript_batch", lst], output=lst)
+            job["_clips"] = [it["clip"] for it in items]
+            return self._json(dict(res, job=job["id"]))
         if p == "/api/rescan":
             threading.Thread(target=LIB.scan, daemon=True).start()
             return self._json({"ok": True})
