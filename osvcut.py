@@ -167,6 +167,29 @@ def yuv420_to_rgb(raw,H,Wd):
     R=y+2*(1-kr)*v; B=y+2*(1-kb)*u; G=(y-kr*R-kb*B)/kg
     return torch.stack([R,G,B]).clamp(0,1)
 
+def nadir_patch(img,d_out,radius_deg):
+    """Cover the area straight below the camera (hand, stick, shadow) with a smooth fill: the colour of a
+    ring just outside the cap, per azimuth, blended in with a soft edge.  d_out: levelled view directions."""
+    z=d_out[...,2]; el=torch.rad2deg(torch.asin((-z).clamp(-1,1)))       # elevation below the horizon
+    az=torch.atan2(d_out[...,0],d_out[...,1])                              # -pi..pi
+    lim=90-radius_deg
+    ring=(el>lim-6)&(el<lim-1)
+    nb=36; b=((az/(2*math.pi)+0.5)*nb).long().clamp(0,nb-1)
+    cols=torch.zeros(3,nb,device=img.device); cnt=torch.zeros(nb,device=img.device)
+    rb=b[ring]; cols.index_add_(1,rb,img[:,ring]); cnt.index_add_(0,rb,torch.ones_like(rb,dtype=torch.float32))
+    have=cnt>0
+    if not have.any(): return img
+    mean=cols.sum(1,keepdim=True)/cnt.sum()
+    cols=torch.where(have[None],cols/cnt.clamp(min=1)[None],mean)
+    k=torch.tensor([1,2,3,2,1.],device=img.device); k=k/k.sum()            # circular smoothing of the ring colours
+    cols=F.conv1d(F.pad(cols[:,None],(2,2),mode="circular"),k.view(1,1,5))[:,0]
+    pos=(az/(2*math.pi)+0.5)*nb-0.5; i0=torch.floor(pos).long()%nb; fr=pos-torch.floor(pos)
+    fill=cols[:,i0]*(1-fr)+cols[:,(i0+1)%nb]*fr
+    # towards the pole the fill fades to the mean ring colour (no azimuthal pinch)
+    tp=((el-lim)/radius_deg).clamp(0,1); fill=fill*(1-tp)+mean[:,:,None]*tp if fill.dim()==3 else fill
+    w=((el-(lim-1))/2).clamp(0,1)
+    return img*(1-w)+fill*w
+
 def render(spec):
     f=spec["src"]; t0,t1=spec["in"],spec["out"]; mode=spec.get("proj","flat")
     Wo,Ho=spec.get("size",[1920,1080]); fps=spec.get("fps",50)
@@ -241,6 +264,8 @@ def render(spec):
                 out=out+c*w; ws=ws+w
             out=(out/(ws+1e-6)).clamp(0,1)
         if vmask is not None: out=out*vmask
+        if spec.get("nadir_patch",0)>0:
+            out=nadir_patch(out,base@torch.tensor(C,dtype=torch.float32,device=dev).T,float(spec["nadir_patch"]))
         writer.put((out*255).byte().permute(1,2,0).contiguous().cpu().numpy().tobytes())
     if pending is not None: pending.result()
     if pool is not None: pool.shutdown()

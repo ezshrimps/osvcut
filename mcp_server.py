@@ -214,9 +214,11 @@ def _spec(clip_id, start, end, keys=None, size=(1920, 1080), fps=30, speed=1.0, 
     return s
 
 
-def render_cut(clip_id, start, end, keys=None, aspect="16:9", fps=30, speed=1.0, title="", projection="flat"):
+def render_cut(clip_id, start, end, keys=None, aspect="16:9", fps=30, speed=1.0, title="", projection="flat", nadir_patch=0):
     size = {"16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:5": [1080, 1350], "2.39:1": [1920, 816]}.get(aspect, [1920, 1080])
     spec = _spec(clip_id, start, end, keys, size, fps, speed)
+    if nadir_patch:
+        spec["nadir_patch"] = float(nadir_patch)
     if projection == "360":            # full levelled 360 video with spherical metadata (YouTube / VR)
         spec.update(proj="equirect", size=[3840, 1920], spherical=True)
         spec.pop("keys", None)
@@ -274,6 +276,7 @@ TOOLS = {
                    {"clip_id": {"type": "string"}, "start": {"type": "number"}, "end": {"type": "number"},
                     "keys": {"type": "array", "items": {"type": "object"}}, "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5", "2.39:1"], "default": "16:9"},
                     "fps": {"type": "integer", "default": 30}, "speed": {"type": "number", "default": 1.0}, "title": {"type": "string"},
+                    "nadir_patch": {"type": "number", "default": 0, "description": "cover the area below the camera (hand / stick) with a smooth patch of this radius in degrees, e.g. 12"},
                     "projection": {"type": "string", "enum": ["flat", "360"], "default": "flat",
                                    "description": "flat = reframed video following keys; 360 = full levelled 360 video (YouTube/VR), keys ignored"}},
                    ["clip_id", "start", "end"]),
