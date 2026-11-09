@@ -19,3 +19,4 @@ _*
 __pycache__/
 *.pyc
 .claude/
+results/

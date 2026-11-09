@@ -257,6 +257,20 @@ class Handler(RangeHandler):
                           open(spec["dst"][:-4] + ".json", "w", encoding="utf8"), ensure_ascii=False, indent=1)
                 job = new_job("export", title, spec, cid)
                 return self._json({k: v for k, v in job.items() if not k.startswith("_")})
+            if kind == "sequence":
+                specs = b.get("specs") or []
+                if not specs or any(not os.path.exists(x.get("src", "")) for x in specs):
+                    return self._json({"error": "empty sequence or missing source"}, 400)
+                title = (b.get("title") or f"剪辑台 · {len(specs)} 段").strip()
+                safe = re.sub(r'[\\/:*?"<>|]+', "_", title)[:60]
+                dst = os.path.join(EXPORTS, f"{time.strftime('%Y%m%d-%H%M%S')}_{safe}.mp4")
+                jid_spec = os.path.join(SPECS, "seq_" + uuid.uuid4().hex[:8] + ".json")
+                json.dump(dict(specs=specs, dst=dst, size=b.get("size"), fps=b.get("fps")),
+                          open(jid_spec, "w", encoding="utf8"), ensure_ascii=False, indent=1)
+                json.dump(dict(title=title, size=b.get("size") or specs[0].get("size"), sequence=specs),
+                          open(dst[:-4] + ".json", "w", encoding="utf8"), ensure_ascii=False, indent=1)
+                job = new_job("sequence", title, None, None, cmd=[sys.executable, "-u", "sequence.py", jid_spec], output=dst)
+                return self._json({k: v for k, v in job.items() if not k.startswith("_")})
             return self._json({"error": "unknown kind"}, 400)
         if p == "/api/track":
             b = self._body()

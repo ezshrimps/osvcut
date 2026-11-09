@@ -145,6 +145,17 @@ body.lib .libview{display:block}
 .pbar{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;margin:10px 0 6px}
 .pbar i{display:block;height:100%;background:var(--accent);width:0;transition:width .4s}
 
+/* sequence (剪辑台) */
+.seq{width:100%;max-width:1100px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.seq h3{margin:0 0 8px;font-size:13px;font-weight:600}
+.seq h3 small{color:var(--dim);font-weight:400;font-family:var(--mono);margin-left:8px}
+.seqrow{display:grid;grid-template-columns:28px 1fr 90px 120px;gap:10px;align-items:center;padding:6px 8px;border-radius:6px;background:var(--panel2);margin-bottom:4px;font-size:12px}
+.seqrow .n{font-family:var(--mono);color:var(--dim)}
+.seqrow .d{font-family:var(--mono);color:var(--dim)}
+.seqrow .ops{display:flex;gap:4px;justify-content:flex-end}
+.seqrow .ops button{background:none;border:1px solid var(--line);border-radius:5px;padding:1px 7px;cursor:pointer;color:var(--dim)}
+.seqrow .ops button:hover{color:var(--text)}
+
 /* jobs + exports */
 .jobs{width:100%;max-width:1100px;display:flex;flex-direction:column;gap:6px}
 .jobs h3,.exports h3{margin:0 0 6px;font-size:13px;color:var(--dim);font-weight:600}
@@ -207,6 +218,11 @@ body.lib .libview{display:block}
       </select>
     </div>
     <div class="flatview" id="flatview">
+      <div class="seq" id="seq">
+        <h3>剪辑台 <small id="seqInfo"></small></h3>
+        <div id="seqList"></div>
+        <div class="exportrow"><input id="seqTitle" placeholder="整片标题（可选）"><button class="btn primary" id="seqGo">导出整片</button><button class="btn" id="seqClear">清空</button></div>
+      </div>
       <div class="jobs" id="jobs"></div>
       <div class="exports"><h3>导出的成片</h3><div class="expgrid" id="expgrid"></div></div>
       <div class="exports"><h3>早期样片</h3><div class="expgrid" id="demogrid"></div></div>
@@ -279,7 +295,7 @@ body.lib .libview{display:block}
       <textarea id="spec" readonly spellcheck="false"></textarea>
       <div class="warn" id="specwarn"></div>
       <div class="btns" style="margin-top:8px"><button class="btn" id="copyspec">复制 spec JSON</button></div>
-      <div class="exportrow"><input id="exportTitle" placeholder="成片标题（可选）"><button class="btn primary" id="exportGo">导出成片</button></div>
+      <div class="exportrow"><input id="exportTitle" placeholder="成片标题（可选）"><button class="btn primary" id="exportGo">导出成片</button><button class="btn" id="seqAdd" title="把这一段（入出点 + 关键帧）加到剪辑台">＋ 剪辑台</button></div>
       <div class="minicap">按上面的关键帧和画幅在 GPU 上渲染 mp4，进度在「成片 &amp; 任务」里看</div>
     </section>
   </aside>
@@ -803,12 +819,63 @@ async function applyTrack(j){
   toast(res.lost_at?`跟随到 ${fmtDur(res.lost_at)} 时丢失目标，已截取到这里`:`跟随完成：${res.keys.length} 个关键帧，已开启运镜预览`,4000);
 }
 
+/* ---------- sequence (剪辑台): several cuts joined into one film ---------- */
+let SEQ=[]; try{SEQ=JSON.parse(localStorage.getItem('osvcut.seq')||'[]')}catch{SEQ=[]}
+function saveSeq(){try{localStorage.setItem('osvcut.seq',JSON.stringify(SEQ))}catch{} renderSeq()}
+function renderSeq(){
+  const tot=SEQ.reduce((a,s)=>a+(s.spec.out-s.spec.in),0);
+  $('seqInfo').textContent=SEQ.length?`${SEQ.length} 段 · ${fmtDur(tot)} · ${SEQ[0].spec.size.join('×')} @ ${SEQ[0].spec.fps}fps`:'';
+  $('seqList').innerHTML=SEQ.length?SEQ.map((s,i)=>`<div class="seqrow"><span class="n">${i+1}</span><span>${esc(s.title)}</span>
+    <span class="d">${fmtDur(s.spec.out-s.spec.in)} · ${s.spec.keys.length} 帧</span>
+    <span class="ops"><button data-op="edit" data-i="${i}" title="在 360° 查看里打开">编辑</button><button data-op="up" data-i="${i}">↑</button><button data-op="down" data-i="${i}">↓</button><button data-op="del" data-i="${i}">✕</button></span></div>`).join('')
+    :'<p class="empty">剪辑台是空的。在 360° 查看里设好入出点和关键帧（或 Shift+拖框跟随），点「＋ 剪辑台」。</p>';
+  $('seqGo').disabled=!SEQ.length;
+  $('seqList').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.i, op=b.dataset.op;
+    if(op==='del') SEQ.splice(i,1);
+    else if(op==='up'&&i>0) [SEQ[i-1],SEQ[i]]=[SEQ[i],SEQ[i-1]];
+    else if(op==='down'&&i<SEQ.length-1) [SEQ[i+1],SEQ[i]]=[SEQ[i],SEQ[i+1]];
+    else if(op==='edit') return editSeqItem(SEQ[i]);
+    saveSeq();
+  });
+}
+async function editSeqItem(s){
+  const lib=LIB.clips.find(x=>x.src===s.spec.src);
+  const demo=CLIPS.equirect.find(x=>x.src===s.spec.src);
+  const c=lib&&bestPreview(lib)?libToClip(lib):(demo||(lib&&libToClip(lib)));
+  if(!c){toast('素材不在库里了');return}
+  setTab('360'); await loadClip(c);
+  const off=s.spec.in-(c.in||0);
+  state.keys=s.spec.keys.map(k=>Object.assign({},k,{t:k.t+off}));
+  state.inP=s.spec.in-(c.in||0); state.outP=s.spec.out-(c.in||0);
+  state.aspect=s.spec.size[0]>s.spec.size[1]?1.7778:s.spec.size[0]<s.spec.size[1]?0.5625:1; $('aspect').value=String(state.aspect);
+  state.follow=true; $('follow').checked=true; layout(); renderKeys();
+  vid.addEventListener('loadedmetadata',()=>{vid.currentTime=state.inP},{once:true});
+}
+$('seqAdd').onclick=()=>{
+  const c=state.clip; if(!c) return;
+  if(!state.keys.length&&state.inP==null){toast('先设入出点（I/O）或记录关键帧');return}
+  let spec; try{spec=JSON.parse($('spec').value)}catch{toast('spec 无效');return}
+  if(SEQ.length){const f=SEQ[0].spec; if(f.size.join()!==spec.size.join()) toast(`画幅和剪辑台第一段不同，导出时会统一成 ${f.size.join('×')}`,3500)}
+  SEQ.push({title:$('exportTitle').value||`${c.title} · ${fmtDur(spec.in)}–${fmtDur(spec.out)}`,spec});
+  saveSeq(); toast(`已加入剪辑台（共 ${SEQ.length} 段）`);
+};
+$('seqClear').onclick=()=>{if(SEQ.length&&confirm('清空剪辑台？')){SEQ=[];saveSeq()}};
+$('seqGo').onclick=async()=>{
+  if(!SEQ.length) return;
+  const f=SEQ[0].spec;
+  const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({kind:'sequence',specs:SEQ.map(s=>s.spec),title:$('seqTitle').value||undefined,size:f.size,fps:f.fps})});
+  const j=await r.json(); if(j.error){toast('导出失败：'+j.error);return}
+  toast('整片已加入导出队列'); pollJobs();
+};
+
 /* ---------- tabs ---------- */
 function setTab(t){
   document.body.classList.toggle('flat',t==='flat'); document.body.classList.toggle('lib',t==='lib');
   $('tabLib').classList.toggle('on',t==='lib'); $('tab360').classList.toggle('on',t==='360'); $('tabFlat').classList.toggle('on',t==='flat');
   if(t!=='360') vid.pause();
-  if(t==='flat'){loadExports();renderJobs()}
+  if(t==='flat'){loadExports();renderJobs();renderSeq()}
   if(t==='lib') renderLibrary();
   if(t==='360') layout();
 }
@@ -826,7 +893,7 @@ async function init(){
   syncControls();layout();requestAnimationFrame(frame);
   await loadLibrary();
   if(CLIPS.equirect.length) loadClip(CLIPS.equirect[0]);
-  pollJobs();
+  pollJobs(); renderSeq();
   if(location.hash==='#lib'||!CLIPS.equirect.length) setTab('lib');
 }
 init();

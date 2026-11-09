@@ -207,8 +207,9 @@ class SmartStitch:
         self.path = new if self.path is None else self.seam_ema * self.path + (1 - self.seam_ema) * new
 
     # ---- composition ----------------------------------------------------------
-    def render(self, imgs, d):
-        """d: (H, W, 3) body-frame directions -> (3, H, W) gamma-encoded image in [0, 1]."""
+    def render(self, imgs, d, parts=False):
+        """d: (H, W, 3) body-frame directions -> (3, H, W) gamma-encoded image in [0, 1].
+        parts=True also returns (slave contribution, master contribution, slave weight, master weight)."""
         if self.path is None:
             self.update(imgs)
         x, y, z = d.unbind(-1)
@@ -234,7 +235,11 @@ class SmartStitch:
         wA = (1 - sB) * mA + 1e-4 * mA + 1e-6 * torch.exp(-(oA / px_deg).clamp(max=60))
         wB = sB * mB + 1e-4 * mB + 1e-6 * torch.exp(-(oB / px_deg).clamp(max=60))
         out = (cA * wA + cB * wB) / (wA + wB)
-        return out.clamp(0, 1) ** (1 / GAMMA)
+        out = out.clamp(0, 1) ** (1 / GAMMA)
+        if parts:
+            n = wA + wB
+            return out, cA.clamp(0, 1) ** (1 / GAMMA), cB.clamp(0, 1) ** (1 / GAMMA), wA / n, wB / n
+        return out
 
     def gains_summary(self):
         lr = np.array(self.logr)
@@ -248,9 +253,11 @@ class FlowStitch(SmartStitch):
     near objects stay single and continuous instead of doubling or being cut."""
 
     def __init__(self, cal, lenses, device="cuda", fband=4.5, fres=0.2, ramp=3.0, flow_ema=0.5,
-                 max_flow=4.0, **kw):
+                 max_flow=4.0, center="dp", **kw):
         super().__init__(cal, lenses, device=device, **kw)
         self.do_dp = False
+        self.center = center          # "overlap": ramp centred in the overlap; "dp": on the min-disagreement path
+        self.fpath = None
         self.fband, self.fres, self.ramp, self.flow_ema, self.max_flow = fband, fres, ramp, flow_ema, max_flow
         a = torch.arange(0, 360, fres, device=device) * math.pi / 180
         b = torch.arange(fband, -fband - 1e-6, -fres, device=device) * math.pi / 180
@@ -309,7 +316,29 @@ class FlowStitch(SmartStitch):
         flow = np.stack([fx * self.fres, -fy * self.fres]) * fill   # px -> degrees; image y down = beta down
         mag = np.hypot(flow[0], flow[1])
         flow *= np.minimum(1, self.max_flow / (mag + 1e-6))
-        flow *= np.minimum(1.0, half / self.ramp)[None, None, :]      # narrow overlap -> gentler warp
+        if self.center == "dp":
+            # half-way alignment of both lenses with the flow, then a min-disagreement closed path
+            Fx, Fy = flow[0] / self.fres, -flow[1] / self.fres
+            Ah = cv2.remap(gA.astype(np.float32), (xs - 0.5 * Fx) % W, ys - 0.5 * Fy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            Bh = cv2.remap(gB.astype(np.float32), (xs + 0.5 * Fx) % W, ys + 0.5 * Fy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            Ah, Bh = cv2.GaussianBlur(Ah, (0, 0), 1.0), cv2.GaussianBlur(Bh, (0, 0), 1.0)
+            gxA, gxB = cv2.Sobel(Ah, cv2.CV_32F, 1, 0), cv2.Sobel(Bh, cv2.CV_32F, 1, 0)
+            gyA, gyB = cv2.Sobel(Ah, cv2.CV_32F, 0, 1), cv2.Sobel(Bh, cv2.CV_32F, 0, 1)
+            cost = (np.abs(Ah - Bh) + 0.25 * (np.abs(gxA - gxB) + np.abs(gyA - gyB))) / 255.0
+            cost += 3.0 * (1 - both)
+            # stay inside the overlap with room for the ramp; mild pull to the overlap centre
+            room = np.minimum(betas[:, None] - lo[None, :], hi[None, :] - betas[:, None])
+            cost += 2.0 * (room < 0.6) + 0.02 * np.abs(betas[:, None] - cen[None, :])
+            if self.fpath is not None:
+                cost += self.lam_t * np.abs(betas[:, None] - self.fpath[None, :]) / self.fband
+            p = self.fband - _dp_closed_path(cost) * self.fres
+            p = _circ_smooth(p, 3.0)
+            self.fpath = p if self.fpath is None else self.seam_ema * self.fpath + (1 - self.seam_ema) * p
+            w = np.clip(np.minimum(self.fpath - lo, hi - self.fpath) - 0.2, 0.15, self.ramp)
+            self.ov_c = torch.tensor(self.fpath, dtype=torch.float32, device=self.dev)
+            self.ov_w = torch.tensor(_circ_smooth(w, 5), dtype=torch.float32, device=self.dev)
+            half = w
+        flow *= np.minimum(1.0, half / self.ramp)[None, None, :]      # narrow transition -> gentler warp
         flow = torch.tensor(flow, dtype=torch.float32, device=self.dev)
         self.flow = flow if self.flow is None else self.flow_ema * self.flow + (1 - self.flow_ema) * flow
         self.last_conf = conf
@@ -318,7 +347,7 @@ class FlowStitch(SmartStitch):
         a, b = torch.deg2rad(alpha_deg), torch.deg2rad(beta_deg)
         return torch.stack([torch.cos(b) * torch.cos(a), torch.sin(b), torch.cos(b) * torch.sin(a)], -1)
 
-    def render(self, imgs, d):
+    def render(self, imgs, d, parts=False):
         if self.flow is None:
             self.update(imgs)
         x, y, z = d.unbind(-1)
@@ -352,4 +381,8 @@ class FlowStitch(SmartStitch):
         wA = (1 - t) * mA + 1e-4 * mA + 1e-6 * torch.exp(-(oA / px_deg).clamp(max=60))
         wB = t * mB + 1e-4 * mB + 1e-6 * torch.exp(-(oB / px_deg).clamp(max=60))
         out = (cA * wA + cB * wB) / (wA + wB)
-        return out.clamp(0, 1) ** (1 / GAMMA)
+        out = out.clamp(0, 1) ** (1 / GAMMA)
+        if parts:
+            n = wA + wB
+            return out, cA.clamp(0, 1) ** (1 / GAMMA), cB.clamp(0, 1) ** (1 / GAMMA), wA / n, wB / n
+        return out

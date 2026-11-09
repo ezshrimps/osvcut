@@ -117,7 +117,7 @@ def render(spec):
     dec=subprocess.Popen(["ffmpeg","-v","error","-ss",str(t0),"-to",str(t1),"-i",f,"-filter_complex",
         f"[0:v:0][0:v:1]hstack,select='not(mod(n\,{step}))'","-fps_mode","passthrough","-f","rawvideo","-pix_fmt","rgb24","-"],stdout=subprocess.PIPE)
     enc=subprocess.Popen(["ffmpeg","-v","error","-y","-f","rawvideo","-pix_fmt","rgb24","-s",f"{Wo}x{Ho}","-r",str(fps_out),"-i","-",
-        "-ss",str(t0),"-to",str(t1),"-i",f,"-map","0:v","-map","1:a?","-c:v","h264_nvenc","-preset","p5","-cq",str(spec.get("cq",20)),"-pix_fmt","yuv420p","-c:a","aac","-shortest",spec["dst"]],stdin=subprocess.PIPE)
+        "-ss",str(t0),"-to",str(t1),"-i",f,"-map","0:v","-map","1:a?","-c:v","h264_nvenc","-preset","p5","-cq",str(spec.get("cq",20)),"-pix_fmt","yuv420p","-c:a","aac","-shortest"]+(["-r",str(fps)] if spec.get("force_fps") else [])+[spec["dst"]],stdin=subprocess.PIPE)
     fb=W*2*W*3; i=0
     total=max(1,int((t1-t0)*fps_out)); eq_base=None
     while True:
