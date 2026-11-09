@@ -53,8 +53,33 @@ def preview_file(cid, preset):
     return os.path.join(PREVIEWS, f"{cid}_{preset}.mp4")
 
 
+_TX_CACHE = {}
+
+
+def speech_summary(cid):
+    """(number of segments, first ~120 characters said) from the cached transcript, memoised by mtime."""
+    tp = analysis.transcript_path(cid)
+    if not os.path.exists(tp):
+        return None
+    mt = os.path.getmtime(tp)
+    hit = _TX_CACHE.get(cid)
+    if hit and hit[0] == mt:
+        return hit[1]
+    try:
+        segs = json.load(open(tp, encoding="utf8")).get("segments", [])
+    except Exception:
+        segs = []
+    txt = " ".join(sg["text"] for sg in segs)
+    val = dict(n=len(segs), text=(txt[:120] + "…") if len(txt) > 120 else txt)
+    _TX_CACHE[cid] = (mt, val)
+    return val
+
+
 def clip_public(c):
     out = {k: v for k, v in c.items() if k != "path"}
+    sp = speech_summary(c["id"])
+    if sp is not None:
+        out["speech"] = sp
     out["previews"] = {p: rel_url(preview_file(c["id"], p)) for p in PREVIEW_PRESETS
                        if os.path.exists(preview_file(c["id"], p))}
     out["thumb"] = f"/api/thumb/{c['id']}.jpg"

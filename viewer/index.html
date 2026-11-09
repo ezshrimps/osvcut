@@ -835,8 +835,8 @@ function renderLibrary(){
     html.push(`<div class="group"><h3>${esc(k)} <small>${cs.length} 段 · ${fmtDur(cs.reduce((a,c)=>a+(c.duration||0),0))}</small>${need?`<button class="btn grpbtn" data-grp="${esc(k)}">全部生成实时预览（${need} 段）</button>`:''}</h3><div class="grid">`);
     for(const c of cs){
       const j=jobFor(c.id), has=Object.keys(c.previews||{}).length;
-      html.push(`<button class="card" data-id="${c.id}"><div class="th" data-src="${c.thumb}"><div class="ph">${c.duration>0?'生成缩略图…':'无法读取'}</div><i></i>
-        <div class="tags">${c.lens_px>=3840?'<span class="tag k8">8K</span>':''}${has?'<span class="tag ok">可播放</span>':c.proxy?'<span class="tag ok">实时</span>':''}${EDITS_CACHE[c.src]?'<span class="tag run">已编辑</span>':''}${j?`<span class="tag run">${j.status==='running'?Math.round(j.progress*100)+'%':'排队'}</span>`:''}${c.audio?'':'<span class="tag">无音频</span>'}</div>
+      html.push(`<button class="card" data-id="${c.id}" title="${c.speech&&c.speech.n?esc('💬 '+c.speech.text):''}"><div class="th" data-src="${c.thumb}"><div class="ph">${c.duration>0?'生成缩略图…':'无法读取'}</div><i></i>
+        <div class="tags">${c.lens_px>=3840?'<span class="tag k8">8K</span>':''}${has?'<span class="tag ok">可播放</span>':c.proxy?'<span class="tag ok">实时</span>':''}${EDITS_CACHE[c.src]?'<span class="tag run">已编辑</span>':''}${j?`<span class="tag run">${j.status==='running'?Math.round(j.progress*100)+'%':'排队'}</span>`:''}${c.audio?'':'<span class="tag">无音频</span>'}${c.speech&&c.speech.n?`<span class="tag">💬 ${c.speech.n}</span>`:''}</div>
         <span class="dur">${fmtDur(c.duration)}</span></div>${j?`<div class="bar" style="width:${j.progress*100}%"></div>`:''}
         <div class="meta"><b>${esc(c.name.replace(/^CAM_/,'').replace(/_D\.OSV$/i,''))}</b><span>${c.shot?esc(c.shot.replace('T',' ').slice(0,16)):''}</span></div></button>`);
     }
