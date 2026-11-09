@@ -36,9 +36,9 @@ DJI Studio (and plug-ins such as OpenOSV) are GUI-first. To let an AI edit 360 f
 |---|---|---|---|---|---|
 | Feathered crossfade | 0.064 | 0.094 | 0.229 | 0.017 | −0.211 (blur) |
 | Min-difference DP cut | 0.045 | 0.068 | **0.029** | 0.011 | −0.033 |
-| **osvcut flow seam** | **0.026** | **0.039** | 0.032 (n.s.) | **0.009** | −0.023 |
+| **osvcut flow seam** | **0.025** | **0.036** | 0.034 (n.s.) | **0.009** | −0.014 |
 
-The flow seam's advantage grows with parallax (CD ratio to the cut 0.76 → 0.42 from zero to ~0.9°). The largest single improvement was a geometry fix: the calibration-to-stream scale is `W/3840`, not `digital_focal_length/fx` (E29). Full protocol, negative results and every number: [`docs/RESEARCH_LOG.md`](docs/RESEARCH_LOG.md) (E1–E49), [`REPORT.md`](REPORT.md) (Chinese), [`paper/`](paper/) (arXiv draft).
+The flow seam's advantage grows with parallax (CD ratio to the cut 0.76 → 0.42 from zero to ~0.9°). The largest single improvement was a geometry fix: the calibration-to-stream scale is `W/3840`, not `digital_focal_length/fx` (E29). Full protocol, negative results and every number: [`docs/RESEARCH_LOG.md`](docs/RESEARCH_LOG.md) (E1–E50), [`REPORT.md`](REPORT.md) (Chinese), [`paper/`](paper/) (arXiv draft).
 
 ## Quick start
 
