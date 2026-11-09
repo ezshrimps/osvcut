@@ -168,6 +168,12 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **C.** Confirms E7/E13 across clips: neither new seam adds measurable flicker (worst case +0.07 on a ratio of ≈1); the feathered stitch's lower value is blur, not stability.
 **Reproduce.** `python eval_temporal.py --clips 8 --seconds 4 --seed 1`.
 
+## E17 — Renderer throughput
+
+**M.** 10 s of H rendered to a 2880×1440 equirect at 30 fps with the flow seam; wall-clock including decode and NVENC encode.
+**R.** Original serial loop 39.8 s → threaded decode/encode + GPU yuv→rgb 30.8 s (NVDEC vs CPU decode made no difference: 30.8 vs 31.2 s, the loop is analysis-bound) → seam analysis every 2nd frame 23.9 s → **analysis in a worker thread, every frame, render uses the latest finished analysis (≤ 1 frame behind) 17.2 s** (2.3× faster than the original). Flicker on Y with async analysis 1.394 vs 1.361 synchronous (reference 1.510).
+**Profile (per 2880×1440 frame, synchronous):** decode 22 ms (CPU) / 14 ms (NVDEC), upload 6 ms, flow analysis 48 ms (two Farneback passes on 1800×46 strips + DP), render 26 ms, download 4 ms.
+
 ---
 
 ## Open questions / next experiments

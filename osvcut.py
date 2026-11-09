@@ -179,6 +179,9 @@ def render(spec):
     enc=subprocess.Popen(["ffmpeg","-v","error","-y","-f","rawvideo","-pix_fmt","rgb24","-s",f"{Wo}x{Ho}","-r",str(fps_out),"-i","-",
         "-ss",str(t0),"-to",str(t1),"-i",f,"-map","0:v","-map","1:a?","-c:v","h264_nvenc","-preset","p5","-cq",str(spec.get("cq",20)),"-pix_fmt","yuv420p","-c:a","aac","-shortest"]+(["-r",str(fps)] if spec.get("force_fps") else [])+[spec["dst"]],stdin=subprocess.PIPE)
     writer=FrameWriter(enc)
+    from concurrent.futures import ThreadPoolExecutor
+    seam_async=bool(spec.get("seam_async",True)) and smart
+    pool=ThreadPoolExecutor(1) if seam_async else None; pending=None; eng_ready=True
     every=max(1,int(spec.get("seam_every",1))); i=0
     total=max(1,int((t1-t0)*fps_out)); eq_base=None
     for raw in reader:
@@ -198,7 +201,14 @@ def render(spec):
         Mt=torch.tensor(M@C,dtype=torch.float32,device=dev)
         d=base@Mt.T
         if smart:
-            if (i-1)%every==0: eng.update(imgs)
+            if seam_async:
+                # analyse in a worker thread; render with the latest finished analysis (<= 1 frame behind)
+                if pending is None or pending.done():
+                    if pending is not None: pending.result()
+                    if eng_ready or (i-1)%every==0: pending=pool.submit(eng.update,imgs); eng_ready=False
+                if not getattr(eng,"_has_state",False):
+                    pending.result(); eng._has_state=True
+            elif (i-1)%every==0: eng.update(imgs)
             out=eng.render(imgs,d)
         else:
             out=0; ws=0
@@ -210,6 +220,8 @@ def render(spec):
             out=(out/(ws+1e-6)).clamp(0,1)
         if vmask is not None: out=out*vmask
         writer.put((out*255).byte().permute(1,2,0).contiguous().cpu().numpy().tobytes())
+    if pending is not None: pending.result()
+    if pool is not None: pool.shutdown()
     writer.close(); enc.wait(); reader.close()
     print(f"progress {total}/{total}",flush=True)
     print("rendered",i,"frames ->",spec["dst"],flush=True)

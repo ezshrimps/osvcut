@@ -11,6 +11,7 @@ All geometry lives in the camera body frame (master lens +Y, slave -Y), so the
 same seam serves every output projection.
 """
 import math
+import threading
 import numpy as np
 import cv2
 import torch
@@ -124,6 +125,7 @@ class SmartStitch:
                  gain_bins=72, gain_ema=0.85, seam_ema=0.5, lam_t=0.6):
         self.dev = device
         self.lenses = lenses
+        self._tls = threading.local()      # per-thread scratch (analysis may run in a worker thread)
         self.masks, self.limits = [], []
         for L in cal["lenses"]:
             m, (cx, cy, rlim) = build_mask(L, cal)
@@ -161,7 +163,7 @@ class SmartStitch:
         gm = torch.stack([(cx + rpx * torch.cos(ph)) / L.W * 2 - 1, (cy + rpx * torch.sin(ph)) / L.W * 2 - 1], -1)[None]
         m = F.grid_sample(self.masks[i], gm, align_corners=False, padding_mode="zeros")[0, 0]
         m = m * (th < math.radians(TH_CUT))
-        self._over = over
+        self._tls.over = over
         return col.clamp(0, 1) ** GAMMA, m
 
     # ---- per-frame analysis ---------------------------------------------------
@@ -225,9 +227,9 @@ class SmartStitch:
         fade = (1 - beta.abs() / 45).clamp(0, 1)
         lr = g + local * fade
         cA, mA = self._sample(0, imgs[0], d)
-        oA = self._over
+        oA = self._tls.over
         cB, mB = self._sample(1, imgs[1], d)
-        oB = self._over
+        oB = self._tls.over
         cA = cA * torch.exp(-lr / 2)
         cB = cB * torch.exp(lr / 2)
         # blind zone (neither lens usable): fall back to the lens whose usable edge is nearer
@@ -373,9 +375,9 @@ class FlowStitch(SmartStitch):
         fade = (1 - beta.abs() / 45).clamp(0, 1)
         lr = g + local * fade
         cA, mA = self._sample(0, imgs[0], dA)
-        oA = self._over
+        oA = self._tls.over
         cB, mB = self._sample(1, imgs[1], dB)
-        oB = self._over
+        oB = self._tls.over
         cA = cA * torch.exp(-lr / 2)
         cB = cB * torch.exp(lr / 2)
         px_deg = self.lenses[0].fx * self.lenses[0].s * math.pi / 180
