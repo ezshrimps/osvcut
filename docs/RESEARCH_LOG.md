@@ -446,3 +446,10 @@ E41 re-run: ratio 0.74 → 0.52 (0.46 top bin), flow seam ≤ 0.041 in every bin
 2. Temporal metrics (flicker) on the benchmark clips for every method.
 3. Near-field parallax on the handle side (1° overlap): depth-aware or temporal fill.
 4. Tracking accuracy benchmark.
+
+## E57 — A finer flow strip for stills (0.05°/px; not adopted)
+
+**Q.** Stills have no real-time budget, and 8K lenses carry ≈ 0.055°/px. Does halving the strip step again (E50: 0.2 → 0.1 helped at 8K) pay off for a single high-resolution frame?
+**M.** `eval_seams.py --mode 8K --clips 6 --frames 5 --methods fres_010,fres_005` (same 30 frames as E50's 8K check); `analyze_bench.py`.
+**R.** CD 0.0347 → 0.0351 (fres 0.05 better on 12/30, p = 0.16), CD-hard 0.0617 → 0.0630 (p = 0.26), edge deviation 0.110 → 0.126 (worse, 9/30, p = 0.005), ghost-SSIM +0.0005 (23/30, p = 0.004, negligible), step n.s.; analysis 587 → 1162 ms. At 0.05° the Farneback window covers half the angle, so the flow is noisier and the morph adds edge energy without removing more disagreement.
+**C.** Not adopted; stills use the default 0.1°/px. The strip resolution is saturated at about the 4K lens pitch — finer flow would need a larger window (E51 found the window insensitive at 0.1°) or a different estimator.
