@@ -25,7 +25,7 @@ DJI Studio (and plug-ins such as OpenOSV) are GUI-first. To let an AI edit 360 f
 | Live preview | Opening any clip auto-builds a dual-fisheye proxy (GPU decode/scale, ~4× real time) plus a rig JSON (lens model, usable radii, exposure balance, 15 Hz levelling quaternions); the WebGL shader stitches and levels it in real time. Exports still use the full flow seam |
 | Timeline | IMU motion curve, shake markers, speech segments (faster-whisper transcript, clickable), keyframes, in/out points (`I` / `O`) |
 | Subject follow | Shift+drag a box around a person → GPU-rendered tracking views + OpenCV MIL tracker with automatic re-aiming → dense linear keyframes, previewed live and exportable |
-| Export | Keyframed yaw / pitch / fov / distortion (little planet etc.) to 16:9 / 9:16 / 1:1 MP4 through a job queue |
+| Export | Keyframed yaw / pitch / fov / distortion (little planet etc.) to 16:9 / 9:16 / 1:1 / 4:5 / 2.39:1 MP4, slow motion / fast forward, multi-clip sequences with background music, or a full levelled 360 MP4 with spherical metadata (YouTube / VR) |
 | Metrics | `tools_flicker.py` – seam flicker vs. a single-lens no-seam reference; `seamdiag.py` – per-azimuth misalignment and exposure ratio along the seam |
 
 ## Quick start
@@ -59,7 +59,7 @@ Example spec:
 
 `proj`: `flat` | `equirect` · `seam`: `flow` (default) | `smart` | `legacy` · `stabilize`: `level` | `lock` | `none`
 
-Optional: `speed` (0.25–4; slow motion uses every source frame), `cq` (quality), `seam_async` (default true), `keys[].dist` (0 rectilinear … 1 little planet), `keys[].ease` (`linear`).
+Optional: `spherical` (with `proj: equirect`: tag the MP4 as 360 video for YouTube / VR players), `speed` (0.25–4; slow motion uses every source frame), `cq` (quality), `seam_async` (default true), `keys[].dist` (0 rectilinear … 1 little planet), `keys[].ease` (`linear`).
 
 ## Use it from an AI assistant (MCP)
 
