@@ -68,3 +68,15 @@ def sheet_jpeg(clip, n=6, W=1024):
         tiles.append(im)
     rows = [np.hstack(tiles[i:i + 2] + [np.zeros_like(tiles[0])] * (2 - len(tiles[i:i + 2]))) for i in range(0, len(tiles), 2)]
     return cv2.imencode(".jpg", np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
+
+
+def holder_direction(clip, t, lift=40.0):
+    """Where the person holding the (invisible) selfie stick is: the stick runs along the camera body's
+    -Z axis; the face sits above the hand, so lift the pitch.  A starting point, not a detector."""
+    _, _, (ts, Ms) = _rig(clip["path"])
+    M = Ms[min(np.searchsorted(ts, t), len(Ms) - 1)]
+    d = M.T @ np.array([0.0, 0.0, -1.0])
+    yaw = math.degrees(math.atan2(d[0], d[1]))
+    pitch = math.degrees(math.asin(max(-1.0, min(1.0, d[2]))))
+    return dict(t=t, stick_yaw=round(yaw, 1), stick_pitch=round(pitch, 1), yaw=round(yaw, 1),
+                pitch=round(min(60.0, pitch + lift), 1), fov=100)

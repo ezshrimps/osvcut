@@ -151,7 +151,10 @@ def clip_overview(clip_id, frames=6, wait_transcript=90):
     return [_image(sheet), _text("\n".join(lines))]
 
 
-def look(clip_id, t, yaw, pitch=0.0, fov=90.0, little_planet=False, width=960, height=540):
+def look(clip_id, t, yaw=0.0, pitch=0.0, fov=90.0, little_planet=False, width=960, height=540, at=""):
+    if at == "holder":                 # aim at the selfie-stick holder (from the IMU), then render
+        h = _get(f"/api/clip/{clip_id}/holder?t={t}")
+        yaw, pitch, fov = h["yaw"], h["pitch"], h["fov"]
     if little_planet:
         pitch, fov, dist = -90.0, 300.0, 1.0
         width = height = max(width, height)
@@ -249,10 +252,11 @@ TOOLS = {
                       {"query": {"type": "string"}, "limit": {"type": "integer", "default": 30}}, ["query"]),
     "clip_overview": (clip_overview, "Understand a clip: levelled 360 contact sheet (image), speech transcript, camera motion and suggested segments.",
                       {"clip_id": {"type": "string"}, "frames": {"type": "integer", "default": 6}}, ["clip_id"]),
-    "look": (look, "Render what a virtual camera sees at time t looking at (yaw, pitch) with field of view fov; little_planet=true for a stereographic overview.",
+    "look": (look, "Render what a virtual camera sees at time t looking at (yaw, pitch) with field of view fov; little_planet=true for a stereographic overview; at='holder' aims roughly at the person holding the selfie stick (computed from the IMU, refine with yaw/pitch afterwards).",
              {"clip_id": {"type": "string"}, "t": {"type": "number"}, "yaw": {"type": "number"}, "pitch": {"type": "number", "default": 0},
               "fov": {"type": "number", "default": 90}, "little_planet": {"type": "boolean", "default": False},
-              "width": {"type": "integer", "default": 960}, "height": {"type": "integer", "default": 540}}, ["clip_id", "t", "yaw"]),
+              "width": {"type": "integer", "default": 960}, "height": {"type": "integer", "default": 540},
+              "at": {"type": "string", "enum": ["", "holder"], "default": ""}}, ["clip_id", "t"]),
     "track_subject": (track_subject, "Follow a subject seen at (yaw, pitch) at time t0 until t1 and return camera keyframes that keep it centred. box_w/box_h = subject size in degrees.",
                       {"clip_id": {"type": "string"}, "t0": {"type": "number"}, "t1": {"type": "number"}, "yaw": {"type": "number"},
                        "pitch": {"type": "number"}, "box_w": {"type": "number", "default": 12}, "box_h": {"type": "number", "default": 30},

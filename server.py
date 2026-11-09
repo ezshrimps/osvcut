@@ -192,6 +192,14 @@ class Handler(RangeHandler):
         if m:
             c = LIB.get(m.group(1))
             return self._json(clip_public(c) if c else {"error": "unknown clip"}, 200 if c else 404)
+        m = re.match(r"^/api/clip/([0-9a-f]{12})/holder$", p)
+        if m:
+            c = LIB.get(m.group(1))
+            if not c:
+                return self._json({"error": "unknown clip"}, 404)
+            from urllib.parse import parse_qs
+            t = float(parse_qs(u.query).get("t", ["0"])[0])
+            return self._json(look.holder_direction(c, t))
         m = re.match(r"^/api/clip/([0-9a-f]{12})/(view|sheet)$", p)
         if m:
             c = LIB.get(m.group(1))

@@ -332,6 +332,7 @@ body.bt .btview .btpair img{cursor:default}
         <button data-p="ball">水晶球</button>
         <button data-p="planet">小行星</button>
         <button data-p="sky">仰望天空</button>
+        <button id="holderBtn" title="根据 IMU 转向手持自拍杆的人（起点，可再微调）">看向持杆人</button>
       </div>
       <div class="row"><label>视场角</label><input type="range" id="fov" min="20" max="340" step="1"><output id="fovv"></output></div>
       <div class="row"><label>畸变</label><input type="range" id="dist" min="0" max="1" step="0.01"><output id="distv"></output></div>
@@ -1258,6 +1259,16 @@ async function loadStorage(){
     const r=await (await fetch('/api/storage/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({what:b.dataset.clear})})).json();
     toast(`已删除 ${r.removed} 个文件`); await loadLibrary(); loadStorage();});
 }
+
+/* ---------- aim at the selfie-stick holder ---------- */
+$('holderBtn').onclick=async()=>{
+  const c=state.clip, id=c&&libIdFor(c); if(!id){toast('这段不在素材库里');return}
+  const t=vid.src?vid.currentTime:0;
+  let h; try{h=await (await fetch(`/api/clip/${id}/holder?t=${t.toFixed(2)}`)).json()}catch{return}
+  if(h.error){toast(h.error);return}
+  Object.assign(state,{yaw:h.yaw,pitch:h.pitch,hfov:h.fov,dist:0}); syncControls();
+  toast('已转向持杆人方向（按 IMU 估计，可拖动微调，或 Shift+拖框跟随）');
+};
 
 /* ---------- help ---------- */
 $('helpBtn').onclick=()=>$('help').classList.add('on');
