@@ -329,7 +329,11 @@ class Handler(RangeHandler):
             return self._json(dict(proxies=size(PROXIES), previews=size(PREVIEWS), thumbs=size(libmod.THUMBS),
                                    exports=size(EXPORTS, ".mp4"), analysis=size(analysis.ADIR)))
         if p == "/api/blindtest/stats":
-            return self._json(blindtest.stats("video" if "kind=video" in (u.query or "") else "still"))
+            kind = "video" if "kind=video" in (u.query or "") else "dji" if "kind=dji" in (u.query or "") else "still"
+            st = blindtest.stats(kind)
+            import dji_compare
+            st["dji_exports"] = len(dji_compare.exports(LIB))
+            return self._json(st)
         if p == "/api/jobs":
             return self._json([{k: v for k, v in j.items() if not k.startswith("_")}
                                for j in sorted(JOBS.values(), key=lambda j: -j["created"])])
@@ -451,8 +455,12 @@ class Handler(RangeHandler):
             return self._json({"ok": True})
         if p == "/api/blindtest/next":
             try:
-                if self._body().get("kind") == "video":     # flow vs. cut in motion, pre-rendered in the background
+                kind = self._body().get("kind")
+                if kind == "video":                 # flow vs. cut in motion, pre-rendered in the background
                     pr = blindtest.next_video(LIB, libmod._thumb_lock)
+                elif kind == "dji":                 # ours vs. DJI Studio's export of the same clip
+                    with libmod._thumb_lock:
+                        pr = blindtest.make_dji_pair(LIB)
                 else:
                     with libmod._thumb_lock:      # share the GPU politely with thumbnail generation
                         pr = blindtest.make_pair(LIB)

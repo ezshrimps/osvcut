@@ -154,6 +154,64 @@ def next_video(lib, gpu_lock, keep=2):
     return pr
 
 
+def make_dji_pair(lib):
+    """Our flow seam vs. DJI Studio's own stitch (its 360 export of the same clip), same view, same instant.
+    The DJI panorama is aligned to our camera body frame per frame (dji_compare.fit_rotation)."""
+    import cv2
+    import torch
+    import dji_compare as D
+    ex = D.exports(lib)
+    if not ex:
+        return None
+    for _ in range(5):
+        cid = random.choice(list(ex))
+        c = lib.clips[cid]
+        dur = min(c.get("duration", 0), float(subprocess_probe_duration(ex[cid]) or 0))
+        if dur < 2:
+            continue
+        t = round(random.uniform(0.5, dur - 0.5), 2)
+        alpha = _pick_alpha(c, t)
+        if alpha is None:
+            continue
+        E = D.grab_eq(ex[cid], t)
+        if E is None:
+            continue
+        # fairness: both close-ups are resampled from a panorama of the same size (ours rendered on the body-frame
+        # equirect grid at DJI's export width), so resolution does not decide the vote - only the stitch does
+        Wd = E.shape[2]
+        r = D.ours_body_eq(c, t, W=Wd)
+        if r is None:
+            continue
+        ours_eq = r[0]
+        small = torch.nn.functional.interpolate(ours_eq[None], size=(256, 512), mode="area")[0]
+        Q, res = D.fit_rotation(small, torch.nn.functional.interpolate(E[None], size=(512, 1024), mode="area")[0],
+                                D.level_M(c, t))
+        size, fov = (720, 540), 55.0
+        d = _dirs(alpha, size, fov)
+        dj = D.sample_eq(E, d @ torch.tensor(Q, dtype=torch.float32, device=d.device).T)
+        ou = D.sample_eq(ours_eq, d)
+        to8 = lambda x: (x.clamp(0, 1) * 255).byte().permute(1, 2, 0).cpu().numpy()[:, :, ::-1].copy()
+        imgs = {"flow": to8(ou), "dji": to8(dj)}
+        m1, m2 = random.sample(["flow", "dji"], 2)
+        pid = uuid.uuid4().hex[:12]
+        files = {}
+        for side, m in (("left", m1), ("right", m2)):
+            fn = os.path.join(BT_DIR, f"{pid}_{side}.jpg")
+            cv2.imwrite(fn, imgs[m], [cv2.IMWRITE_JPEG_QUALITY, 92])
+            files[side] = "/cache/blindtest/" + os.path.basename(fn)
+        with _lock:
+            _pairs[pid] = dict(pid=pid, kind="dji", clip=c["id"], t=t, alpha=round(alpha, 2), left=m1, right=m2,
+                               align_residual=round(res, 4), created=time.time())
+        return dict(pid=pid, kind="dji", left=files["left"], right=files["right"])
+    return None
+
+
+def subprocess_probe_duration(path):
+    import subprocess
+    return subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                          capture_output=True, text=True).stdout.strip()
+
+
 def _pick_alpha(clip, t):
     """Prefer an azimuth where the two lenses disagree geometrically (parallax)."""
     import torch
@@ -227,8 +285,9 @@ def stats(kind="still"):
     if os.path.exists(VOTES):
         recs = [json.loads(l) for l in open(VOTES, encoding="utf8") if l.strip()]
     recs = [r for r in recs if r.get("kind", "still") == kind]
-    wins = {m: 0.0 for m in METHODS}
-    games = {m: 0 for m in METHODS}
+    meths = METHODS if kind == "still" else sorted({r["left"] for r in recs} | {r["right"] for r in recs})
+    wins = {m: 0.0 for m in meths}
+    games = {m: 0 for m in meths}
     pair = {}
     for r in recs:
         a, b = r["left"], r["right"]
@@ -244,9 +303,9 @@ def stats(kind="still"):
             wins[w] += 1
             pr[w] += 1
     # Bradley-Terry scores (MM algorithm), ties as half wins
-    s = {m: 1.0 for m in METHODS}
+    s = {m: 1.0 for m in meths}
     for _ in range(200):
-        for m in METHODS:
+        for m in meths:
             den = 0.0
             for (x, y), pr in pair.items():
                 if m in (x, y):
@@ -254,7 +313,7 @@ def stats(kind="still"):
                     den += pr["n"] / (s[m] + s[o])
             if den > 0 and wins[m] > 0:
                 s[m] = wins[m] / den
-        z = sum(s.values())
+        z = sum(s.values()) or 1.0
         s = {m: v * len(s) / z for m, v in s.items()}
-    return dict(n=len(recs), win_rate={m: (wins[m] / games[m] if games[m] else None) for m in METHODS},
+    return dict(n=len(recs), win_rate={m: (wins[m] / games[m] if games[m] else None) for m in meths},
                 bt=s, pairs={f"{k[0]} vs {k[1]}": v for k, v in pair.items()})

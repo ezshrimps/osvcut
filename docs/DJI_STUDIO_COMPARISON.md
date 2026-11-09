@@ -27,6 +27,17 @@ Studio exports of the same clips. osvcut's column is what the code in this repos
 
 1. Same-footage stitch comparison (needs DJI Studio exports).
 
+## Same-footage comparison (tooling ready)
+
+1. In DJI Studio, export a few clips as **360° panorama video** (whole clip, highest resolution and bitrate).
+2. Save them as `E:\Videos\_dji_studio_exports\<clip name>.mp4` (same name as the `.OSV`; the folder can be changed
+   with `OSV_DJI_EXPORTS`). `python dji_compare.py list` shows which clips are matched.
+3. The studio's blind-test page then shows a third mode, **对比 DJI Studio**: our flow seam and DJI Studio's stitch at the
+   same instant and seam location, sides random. DJI's panorama is aligned to our camera body frame per frame
+   (`dji_compare.fit_rotation`: IMU-levelling initialisation, yaw search, 3-DoF refinement away from the seam band;
+   self-test on our own export rotated by ~37.6°: same residual as unrotated, close-ups agree at 33 dB). Both close-ups
+   are resampled from a panorama of the same width, so resolution does not decide the vote.
+
 ## Sources
 
 - Engadget, DJI Osmo 360 review: https://www.engadget.com/cameras/dji-osmo-360-review-a-capable-action-cam-thats-a-real-threat-to-insta360-120019592.html
