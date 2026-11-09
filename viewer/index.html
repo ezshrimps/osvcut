@@ -414,21 +414,8 @@ vec4 lensSample(int i, vec3 db){
   if(seamOn==0) col *= (i==0 ? g0 : g1);
   return vec4(col, valid);
 }
-out vec4 o; const float PI=3.14159265359;
-void main(){
-  vec2 p=gl_FragCoord.xy-res*0.5;
-  float h=hfov*0.5;
-  float f=(res.x*0.5)*(dist+cos(h))/((1.0+dist)*sin(h));
-  float k=length(p)/(f*(1.0+dist));
-  float s=k*dist/sqrt(1.0+k*k);
-  if(s>=1.0){o=vec4(0.03,0.03,0.035,1);return;}
-  float th=atan(k)+asin(s);
-  float ph=atan(p.y,p.x);
-  vec3 v=vec3(sin(th)*cos(ph),cos(th),sin(th)*sin(ph));
-  float cp=cos(pitch),sp=sin(pitch);
-  v=vec3(v.x,cp*v.y-sp*v.z,sp*v.y+cp*v.z);
-  float cy=cos(yaw),sy=sin(yaw);
-  v=vec3(cy*v.x+sy*v.y,-sy*v.x+cy*v.y,v.z);
+out vec4 o; const float PI=3.14159265359; uniform float nadirDeg;
+vec3 scene(vec3 v){
   float lon=atan(v.x,v.y), lat=asin(clamp(v.z,-1.0,1.0));
   vec3 c;
   if(live==1){
@@ -456,6 +443,42 @@ void main(){
   } else {
     c = texture(tex,vec2(lon/(2.0*PI)+0.5,0.5-lat/PI)).rgb;
   }
+  return c;
+}
+// same fill as osvcut.nadir_patch: ring 1-6 deg outside the cap, local azimuth colour fading to the ring mean
+vec3 ringDir(float az, float el){ float e=radians(el); return vec3(cos(e)*sin(az), cos(e)*cos(az), -sin(e)); }
+vec3 nadirFill(vec3 v, vec3 c){
+  float el = degrees(asin(clamp(-v.z,-1.0,1.0)));
+  float lim = 90.0 - nadirDeg;
+  float w = clamp((el-(lim-1.0))/2.0, 0.0, 1.0);
+  if(w<=0.0) return c;
+  float az = atan(v.x, v.y);
+  vec3 loc = vec3(0.0), mean = vec3(0.0);
+  float ws = 0.0;                                   // +-40 deg triangular window, 4 elevations
+  for(int i=-12;i<=12;i++){ float wt=13.0-abs(float(i)); for(int j=0;j<3;j++){ loc += wt*scene(ringDir(az+float(i)*0.0582, lim-1.5-1.7*float(j)+0.6*float(abs(i)%2))); ws += wt; } }
+  loc /= ws;
+  for(int i=0;i<12;i++) mean += scene(ringDir(float(i)*0.5236, lim-3.5));
+  mean /= 12.0;
+  float tp = clamp((el-lim)/nadirDeg, 0.0, 1.0);
+  return mix(c, mix(loc, mean, tp), w);
+}
+void main(){
+  vec2 p=gl_FragCoord.xy-res*0.5;
+  float h=hfov*0.5;
+  float f=(res.x*0.5)*(dist+cos(h))/((1.0+dist)*sin(h));
+  float k=length(p)/(f*(1.0+dist));
+  float s=k*dist/sqrt(1.0+k*k);
+  if(s>=1.0){o=vec4(0.03,0.03,0.035,1);return;}
+  float th=atan(k)+asin(s);
+  float ph=atan(p.y,p.x);
+  vec3 v=vec3(sin(th)*cos(ph),cos(th),sin(th)*sin(ph));
+  float cp=cos(pitch),sp=sin(pitch);
+  v=vec3(v.x,cp*v.y-sp*v.z,sp*v.y+cp*v.z);
+  float cy=cos(yaw),sy=sin(yaw);
+  v=vec3(cy*v.x+sy*v.y,-sy*v.x+cy*v.y,v.z);
+  float lon=atan(v.x,v.y), lat=asin(clamp(v.z,-1.0,1.0));
+  vec3 c = scene(v);
+  if(nadirDeg>0.0) c = nadirFill(v, c);
   if(grid==1){
     float lo=lon*180.0/PI, la=lat*180.0/PI;
     float dlo=abs(mod(lo+7.5,15.0)-7.5), dla=abs(mod(la+7.5,15.0)-7.5);
@@ -474,7 +497,7 @@ function sh(t,s){const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShade
 const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-const U={};['seamOn','seamTex','gainTex','gglobTex','seamRows','seamRate','vtime','res','yaw','pitch','hfov','dist','grid','live','Mb','R0','R1','k0','k1','k05','k15','f0','f1','c0','c1','rlimTex','lensPx','thetaCut','g0','g1','tex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const U={};['seamOn','seamTex','gainTex','gglobTex','seamRows','seamRate','vtime','res','yaw','pitch','hfov','dist','grid','live','Mb','R0','R1','k0','k1','k05','k15','f0','f1','c0','c1','rlimTex','lensPx','thetaCut','g0','g1','tex','nadirDeg'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 gl.uniform1i(U.tex,0); gl.uniform1i(U.rlimTex,1); gl.uniform1i(U.live,0);
 gl.uniform1i(U.seamTex,2); gl.uniform1i(U.gainTex,3); gl.uniform1i(U.gglobTex,4); gl.uniform1i(U.seamOn,0);
 const seamT=gl.createTexture(), gainT=gl.createTexture(), gglobT=gl.createTexture();
@@ -682,7 +705,7 @@ function frame(){
   else if(vid.readyState>=2&&(frameDirty||!vid.paused)){gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,vid);frameDirty=false;$('loading').style.display='none';}
   gl.viewport(0,0,canvas.width,canvas.height);
   gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.yaw,state.yaw*D2R);gl.uniform1f(U.pitch,state.pitch*D2R);
-  gl.uniform1f(U.hfov,Math.min(state.hfov,maxFov(state.dist))*D2R);gl.uniform1f(U.dist,state.dist);gl.uniform1i(U.grid,state.grid?1:0);
+  gl.uniform1f(U.hfov,Math.min(state.hfov,maxFov(state.dist))*D2R);gl.uniform1f(U.dist,state.dist);gl.uniform1f(U.nadirDeg,+($('nadirSel')?.value||0));gl.uniform1i(U.grid,state.grid?1:0);
   if(RIG){gl.uniformMatrix3fv(U.Mb,false,rigMatrix(vid.currentTime||0)); gl.uniform1f(U.vtime,vid.currentTime||0);}
   gl.drawArrays(gl.TRIANGLES,0,3);
   drawMini(); drawTimeline(); updateTxHighlight();
