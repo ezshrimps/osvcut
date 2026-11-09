@@ -1378,22 +1378,26 @@ function suggestions(){
   if(m&&m.speed.length){
     const shSorted=[...m.shake].sort((a,b)=>a-b), shQ=shSorted[Math.floor(shSorted.length*0.6)]||0;
     for(const [a,b] of runs(m.speed,m.rate,i=>m.speed[i]<20&&m.shake[i]<=Math.max(8,shQ),2.5))
-      S.push({kind:'calm',start:a,end:Math.min(b,a+8),text:'稳定画面，适合风景 / 环视'});
+    { S.push({kind:'calm',start:a,end:Math.min(b,a+8),text:'稳定画面，适合风景 / 环视'});
+      // still candidate: the steadiest instant of the run (least rotation + shake -> least motion blur)
+      let bi=-1,bv=1e9; for(let i=Math.ceil(a*m.rate);i<Math.min(m.speed.length,Math.floor(b*m.rate));i++){const v=m.speed[i]+2*m.shake[i]; if(v<bv){bv=v;bi=i}}
+      if(bi>=0) S.push({kind:'still',start:bi/m.rate,end:bi/m.rate,text:'最稳的一刻，适合截图（点一下定位，按 P）'}); }
     for(const [a,b] of runs(m.speed,m.rate,i=>m.speed[i]>45,0.5))
       S.push({kind:'whip',start:Math.max(0,a-0.3),end:Math.min(D,b+0.3),text:'快速转动，可做甩镜转场'});
   }
-  S.forEach(s=>{s.start=Math.max(0,s.start-0.2);s.end=Math.min(D||s.end,s.end+0.3)});
-  const order={talk:0,calm:1,whip:2};
-  return S.filter(s=>s.end-s.start>=0.8).sort((a,b)=>a.start-b.start||order[a.kind]-order[b.kind]);
+  S.forEach(s=>{if(s.kind!=='still'){s.start=Math.max(0,s.start-0.2);s.end=Math.min(D||s.end,s.end+0.3)}});
+  const order={talk:0,calm:1,still:2,whip:3};
+  return S.filter(s=>s.kind==='still'?(!D||s.start<D):s.end-s.start>=0.8).sort((a,b)=>a.start-b.start||order[a.kind]-order[b.kind]);
 }
-const SUG_ICON={talk:'💬',calm:'🌄',whip:'↻'};
+const SUG_ICON={talk:'💬',calm:'🌄',whip:'↻',still:'📷'};
 function renderSuggest(){
   const box=$('sug'); if(!box) return;
   if(!state.motion&&!state.tx){box.innerHTML='<div class="empty">打开片段后自动分析</div>';return}
   const S=suggestions();
   if(!S.length){box.innerHTML='<div class="empty">没有找到明显的片段</div>';return}
-  box.innerHTML=S.map((s,i)=>`<div data-i="${i}"><b>${fmtDur(s.start)}–${fmtDur(s.end)}</b><span>${SUG_ICON[s.kind]} ${esc(s.text.length>60?s.text.slice(0,60)+'…':s.text)}</span></div>`).join('');
+  box.innerHTML=S.map((s,i)=>`<div data-i="${i}"><b>${s.kind==='still'?fmtDur(s.start):fmtDur(s.start)+'–'+fmtDur(s.end)}</b><span>${SUG_ICON[s.kind]} ${esc(s.text.length>60?s.text.slice(0,60)+'…':s.text)}</span></div>`).join('');
   box.querySelectorAll('div[data-i]').forEach(d=>d.onclick=()=>{const s=S[+d.dataset.i];
+    if(s.kind==='still'){ if(vid.src){vid.pause(); vid.currentTime=s.start;} toast(`已定位到 ${fmtDur(s.start)}，转好视角后按 P 截图`); return; }
     state.inP=s.start; state.outP=s.end; writeSpec(); if(vid.src){vid.currentTime=s.start; vid.play().catch(()=>{})}
     toast(`已设入出点 ${fmtDur(s.start)} → ${fmtDur(s.end)}`)});
 }
