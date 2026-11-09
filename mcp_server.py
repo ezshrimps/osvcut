@@ -76,7 +76,8 @@ def list_clips(query="", category="", limit=30):
             flags.append("no-audio")
         lines.append(f"{c['id']} | {c.get('event', '')} | {c['name']} | {_fmt(c.get('duration'))} | "
                      f"{(c.get('shot') or '').replace('T', ' ')} | {'8K' if c.get('lens_px', 0) >= 3840 else '4K'}"
-                     + (f" | {','.join(flags)}" if flags else ""))
+                     + (f" | {','.join(flags)}" if flags else "")
+                     + (f" | says: {c['speech']['text'][:80]}" if c.get("speech") and c["speech"].get("n") else ""))
     return [_text("\n".join(lines))]
 
 
