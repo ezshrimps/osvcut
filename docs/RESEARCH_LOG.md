@@ -414,6 +414,12 @@ E41 re-run: ratio 0.74 → 0.52 (0.46 top bin), flow seam ≤ 0.041 in every bin
 **R.** CD 0.0347 vs 0.0351 (0.05 better 12/30, p = 0.16), fidelity and edges n.s.; analysis 406 → 636 ms.
 **C.** 0.1° is enough for both modes; no per-mode resolution.
 
+## E53 — Temporal smoothing parameters (no change)
+
+**M.** `eval_temporal.py --variants` (8 clips, 4 s at 25 fps, final defaults otherwise): flow EMA 0 / 0.5 / 0.8, seam EMA 0.5 / 0.8, path temporal term λ_t 0 / 0.6 / 1.2.
+**R.** Excess flicker vs the single-lens reference: default −0.014 (2/8 above); flow EMA 0 and 0.8 −0.014 (per-clip differences ≤ 0.003); seam EMA 0.8 −0.015; λ_t 1.2 −0.015; **λ_t 0 +0.057 [−0.035, +0.312], 5/8 above**.
+**C.** The path's temporal term is what keeps the seam steady (without it the path jumps between near-equal minima); the EMAs barely matter at 25 fps. Defaults kept.
+
 ---
 
 ## Open questions / next experiments

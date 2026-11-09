@@ -51,6 +51,7 @@ def main():
     ap.add_argument("--fps", type=float, default=25)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out", default="results/temporal_bench.json")
+    ap.add_argument("--variants", default="")
     a = ap.parse_args()
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     lib = libmod.Library([r"E:\Videos"])
@@ -58,7 +59,9 @@ def main():
                   key=lambda c: c["id"])
     clips = random.Random(a.seed).sample(pool, min(a.clips, len(pool)))
     eq = view_dirs("equirect", W_OUT, H_OUT)
-    methods = ["single", "legacy", "smart", "flow", "flow075"]   # flow = current default; flow075 = E42 default (centre prior 0.02)
+    # extra FlowStitch variants: --variants '{"name": {kwargs}, ...}' (E53); default: the current defaults only
+    variants = json.loads(a.variants) if a.variants else {}
+    methods = ["single", "legacy", "smart", "flow"] + list(variants)
     results = []
     for c in clips:
         f = c["path"]
@@ -67,7 +70,7 @@ def main():
         lenses = [Lens(cal, L) for L in cal["lenses"]]
         ts, Ms = level_frames(f)
         t0 = random.Random(c["id"]).uniform(1, c["duration"] - a.seconds - 1)
-        engines = {"smart": SmartStitch(cal, lenses), "flow": FlowStitch(cal, lenses), "flow075": FlowStitch(cal, lenses, room_min=0.6)}
+        engines = {"smart": SmartStitch(cal, lenses), "flow": FlowStitch(cal, lenses), **{k: FlowStitch(cal, lenses, **v) for k, v in variants.items()}}
         prev = {m: None for m in methods}
         acc = {m: [] for m in methods}
         for t, imgs in frames(f, t0, a.seconds, a.fps, W):
