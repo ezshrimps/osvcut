@@ -241,6 +241,48 @@ def test_suggest_talk_calm_whip():
     assert all(x["end"] - x["start"] <= 8.0 + 1e-9 for x in S if x["kind"] == "calm")
 
 
+# ---------------------------------------------------------------- captions and title cards
+def test_srt_time_and_caption_mapping():
+    import shutil, subprocess, tempfile
+    from osvcut import _srt_time, add_captions
+    assert _srt_time(0) == "00:00:00,000" and _srt_time(3723.4567) == "01:02:03,457"
+    if not shutil.which("ffmpeg"):
+        print("     (skipped: ffmpeg not found)")
+        return
+    d = tempfile.mkdtemp()
+    v = os.path.join(d, "v.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=gray:size=320x180:rate=25:duration=3",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", v], check=True)
+    caps = [{"start": 9.0, "end": 9.5, "text": "before"}, {"start": 10.5, "end": 11.5, "text": "inside"},
+            {"start": 12.8, "end": 14.0, "text": "tail"}, {"start": 20, "end": 21, "text": "after"}]
+    n = add_captions(v, caps, 10.0, 13.0, speed=0.5, mode="soft", size=(320, 180))
+    srt = open(v[:-4] + ".srt", encoding="utf8").read()
+    assert n == 2 and "inside" in srt and "tail" in srt and "before" not in srt and "after" not in srt
+    assert "00:00:01,000 --> 00:00:03,000" in srt          # (10.5-10)/0.5 .. (11.5-10)/0.5
+
+
+def test_title_card_burns_and_keeps_length():
+    import shutil, subprocess, tempfile
+    if not shutil.which("ffmpeg"):
+        print("     (skipped: ffmpeg not found)")
+        return
+    from osvcut import add_title
+    d = tempfile.mkdtemp()
+    v = os.path.join(d, "v.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=black:size=320x180:rate=25:duration=3",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", v], check=True)
+    add_title(v, "Title", (320, 180), seconds=2.0, subtitle="sub")
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", v],
+                               capture_output=True, text=True).stdout)
+    assert abs(dur - 3.0) < 0.1, dur
+    def peak_at(t):
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(t), "-i", v, "-frames:v", "1", "-f", "rawvideo",
+                              "-pix_fmt", "gray", "-"], capture_output=True).stdout
+        return max(raw) if raw else 0
+    assert peak_at(1.0) > 200 and peak_at(2.6) < 40          # white text on black during the card, none after
+    assert not os.path.exists(v[:-4] + "_title.ass")
+
+
 # ---------------------------------------------------------------- search normalisation
 def test_traditional_simplified_folding():
     from textnorm import norm
