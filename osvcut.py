@@ -61,6 +61,21 @@ def view_dirs(mode,Wo,Ho,fov=None):
     zs,xs=torch.meshgrid(zs,xs,indexing="ij")
     d=torch.stack([xs,torch.ones_like(xs),zs],-1); return d/d.norm(dim=-1,keepdim=True)
 
+def view_dirs_eye(Wo,Ho,fov,dist):
+    """Eye-offset ("generalised stereographic") virtual camera, same maths as the viewer shader:
+    dist=0 rectilinear, dist=1 stereographic (little planet / crystal ball).  Returns (dirs, valid)."""
+    dist=float(max(0.0,min(1.0,dist)))
+    fmax=2*math.degrees(math.acos(-dist))-1
+    h=math.radians(min(fov,fmax))/2
+    f=(Wo/2)*(dist+math.cos(h))/((1+dist)*math.sin(h))
+    px=torch.arange(Wo,device=dev)+.5-Wo/2; py=-(torch.arange(Ho,device=dev)+.5-Ho/2)
+    py,px=torch.meshgrid(py,px,indexing="ij")
+    k=torch.hypot(px,py)/(f*(1+dist)); s=k*dist/torch.sqrt(1+k*k)
+    valid=s<1
+    th=torch.atan(k)+torch.asin(s.clamp(max=1)); ph=torch.atan2(py,px)
+    d=torch.stack([torch.sin(th)*torch.cos(ph),torch.cos(th),torch.sin(th)*torch.sin(ph)],-1)
+    return d,valid
+
 def cam_rot(yaw,pitch):
     y,p=math.radians(yaw),math.radians(pitch)
     Rz=np.array([[math.cos(y),math.sin(y),0],[-math.sin(y),math.cos(y),0],[0,0,1]])  # +yaw = turn right
@@ -74,7 +89,8 @@ def interp_kf(kfs,t):
         if t<=b["t"]:
             s=(t-a["t"])/(b["t"]-a["t"]); s=s*s*(3-2*s)
             dy=((b["yaw"]-a["yaw"]+180)%360)-180
-            return dict(yaw=a["yaw"]+dy*s,pitch=a["pitch"]+(b["pitch"]-a["pitch"])*s,fov=a["fov"]+(b["fov"]-a["fov"])*s)
+            return dict(yaw=a["yaw"]+dy*s,pitch=a["pitch"]+(b["pitch"]-a["pitch"])*s,fov=a["fov"]+(b["fov"]-a["fov"])*s,
+                        dist=a.get("dist",0)+(b.get("dist",0)-a.get("dist",0))*s)
     return kfs[-1]
 
 def render(spec):
@@ -102,11 +118,14 @@ def render(spec):
         imgs=[im[None,:,:,:W],im[None,:,:,W:]]
         M=Ms[min(np.searchsorted(ts,t),len(Ms)-1)]
         if i%10==0: print(f"progress {i}/{total}",flush=True)
+        vmask=None
         if mode=="equirect":
             if eq_base is None: eq_base=view_dirs("equirect",Wo,Ho)
             base=eq_base; C=np.eye(3)
         else:
-            k=interp_kf(kfs,t-t0); base=view_dirs("flat",Wo,Ho,k["fov"]); C=cam_rot(k["yaw"],k["pitch"])
+            k=interp_kf(kfs,t-t0); C=cam_rot(k["yaw"],k["pitch"])
+            if k.get("dist",0)>1e-3: base,vmask=view_dirs_eye(Wo,Ho,k["fov"],k["dist"])
+            else: base=view_dirs("flat",Wo,Ho,k["fov"])
         Mt=torch.tensor(M@C,dtype=torch.float32,device=dev)
         d=base@Mt.T
         if smart:
@@ -119,6 +138,7 @@ def render(spec):
                 c,w=L.sample(img,d) if mode_seam!="single0" else (L.sample(img,d)[0],1.0)
                 out=out+c*w; ws=ws+w
             out=(out/(ws+1e-6)).clamp(0,1)
+        if vmask is not None: out=out*vmask
         enc.stdin.write((out*255).byte().permute(1,2,0).contiguous().cpu().numpy().tobytes())
     enc.stdin.close(); enc.wait(); dec.wait()
     print(f"progress {total}/{total}",flush=True)

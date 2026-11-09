@@ -85,7 +85,8 @@ textarea{width:100%;height:150px;margin-top:10px;background:#0b0c0e;border:1px s
 .flatview figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
 .flatview video{display:block;max-height:70vh;max-width:100%;border-radius:6px;background:#000}
 .flatview figcaption{margin-top:8px;color:var(--dim);font-size:12px}
-body.flat .stage,body.flat .transport{display:none}
+body.flat .stage,body.flat .transport,body.flat aside{display:none}
+body.flat .app{grid-template-columns:1fr}
 body.flat .flatview{display:flex}
 
 /* ---------- info timeline ---------- */
@@ -374,7 +375,7 @@ function interpKeys(t){
   for(let i=0;i<ks.length-1;i++){const a=ks[i],b=ks[i+1];
     if(t<=b.t){let s=(t-a.t)/(b.t-a.t||1);s=s*s*(3-2*s);
       const dy=((b.yaw-a.yaw+540)%360)-180;
-      return {yaw:a.yaw+dy*s,pitch:a.pitch+(b.pitch-a.pitch)*s,fov:a.fov+(b.fov-a.fov)*s};}}
+      return {yaw:a.yaw+dy*s,pitch:a.pitch+(b.pitch-a.pitch)*s,fov:a.fov+(b.fov-a.fov)*s,dist:(a.dist||0)+((b.dist||0)-(a.dist||0))*s};}}
   return ks[ks.length-1];
 }
 const r1=x=>Math.round(x*10)/10, r2=x=>Math.round(x*100)/100;
@@ -383,9 +384,9 @@ function renderKeys(){
   const ks=[...state.keys].sort((a,b)=>a.t-b.t);
   $('kflist').innerHTML='';$('kfempty').style.display=ks.length?'none':'block';
   ks.forEach(k=>{const row=document.createElement('div');row.className='kfrow';
-    row.innerHTML=`<span>t ${k.t.toFixed(2)}s · yaw ${r1(k.yaw)}° · pitch ${r1(k.pitch)}° · fov ${r1(k.fov)}°</span><button class="x" title="删除">✕</button>`;
+    row.innerHTML=`<span>t ${k.t.toFixed(2)}s · yaw ${r1(k.yaw)}° · pitch ${r1(k.pitch)}° · fov ${r1(k.fov)}°${k.dist?` · 畸变 ${k.dist.toFixed(2)}`:''}</span><button class="x" title="删除">✕</button>`;
     row.onclick=e=>{if(e.target.classList.contains('x')){state.keys.splice(state.keys.indexOf(k),1);renderKeys();return}
-      vid.currentTime=k.t;Object.assign(state,{yaw:k.yaw,pitch:k.pitch,hfov:k.fov});syncControls();};
+      vid.currentTime=k.t;Object.assign(state,{yaw:k.yaw,pitch:k.pitch,hfov:k.fov,dist:k.dist||0});syncControls();};
     $('kflist').appendChild(row);});
   const dur=vid.duration||1;$('kfmarks').innerHTML=ks.map(k=>`<i style="left:${k.t/dur*100}%"></i>`).join('');
   writeSpec();
@@ -397,10 +398,9 @@ function writeSpec(){
   let tin=ks.length?Math.max(0,ks[0].t):0, tout=ks.length?Math.min(vid.duration||ks.at(-1).t+1,ks.at(-1).t+1):(vid.duration||0);
   if(state.inP!=null) tin=state.inP; if(state.outP!=null) tout=state.outP;
   const spec={src:c.src,in:r2(c.in+tin),out:r2(c.in+tout),proj:'flat',size,fps:50,
-    keys:ks.map(k=>({t:r2(Math.max(0,k.t-tin)),yaw:r1(k.yaw),pitch:r1(k.pitch),fov:r1(k.fov)})),dst:`samples/${c.id}_cut.mp4`};
+    keys:ks.map(k=>Object.assign({t:r2(Math.max(0,k.t-tin)),yaw:r1(k.yaw),pitch:r1(k.pitch),fov:r1(k.fov)},k.dist>0.001?{dist:r2(k.dist)}:{})),dst:`samples/${c.id}_cut.mp4`};
   $('spec').value=JSON.stringify(spec,null,1).replace(/\n\s+(?=[\d\-\]}])/g,' ').replace(/\{\n\s+/g,'{');
-  $('specwarn').textContent=state.dist>0.001?'注意：osvcut 目前只渲染直线投影（畸变=0），畸变设置不会进入导出。':
-    (ks.some(k=>k.fov>150)?'注意：直线投影下 fov>150° 边缘拉伸会很严重。':'');
+  $('specwarn').textContent=ks.some(k=>k.fov>150&&!(k.dist>0.3))?'提示：直线投影下 fov>150° 边缘拉伸严重，可调大「畸变」或用超广角/小行星预设。':'';
 }
 
 /* ---------- controls ---------- */
@@ -419,7 +419,7 @@ $('grid').onchange=e=>state.grid=e.target.checked;
 $('follow').onchange=e=>state.follow=e.target.checked;
 $('addkf').onclick=addKey;
 function addKey(){state.keys=state.keys.filter(k=>Math.abs(k.t-vid.currentTime)>0.02);
-  state.keys.push({t:vid.currentTime,yaw:normYaw(state.yaw),pitch:state.pitch,fov:state.hfov});renderKeys();}
+  state.keys.push({t:vid.currentTime,yaw:normYaw(state.yaw),pitch:state.pitch,fov:state.hfov,dist:state.dist});renderKeys();}
 $('clearkf').onclick=()=>{state.keys=[];renderKeys()};
 $('copyspec').onclick=async()=>{try{await navigator.clipboard.writeText($('spec').value);$('copyspec').textContent='已复制 ✓'}catch{$('spec').select();document.execCommand('copy');$('copyspec').textContent='已复制 ✓'}setTimeout(()=>$('copyspec').textContent='复制 spec JSON',1200)};
 $('loadai').onclick=async()=>{const c=state.clip;const s=await (await fetch(c.aiSpec)).json();
@@ -482,7 +482,7 @@ if('requestVideoFrameCallback' in HTMLVideoElement.prototype){
 
 /* main loop */
 function frame(){
-  if(state.follow&&state.keys.length&&!drag){const k=interpKeys(vid.currentTime);if(k){state.yaw=k.yaw;state.pitch=k.pitch;state.hfov=k.fov;state.dist=0;}}
+  if(state.follow&&state.keys.length&&!drag){const k=interpKeys(vid.currentTime);if(k){state.yaw=k.yaw;state.pitch=k.pitch;state.hfov=k.fov;state.dist=k.dist||0;}}
   if(stillImg){ if(frameDirty&&stillImg.complete&&stillImg.naturalWidth){gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,stillImg);frameDirty=false;} }
   else if(vid.readyState>=2&&(frameDirty||!vid.paused)){gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,vid);frameDirty=false;$('loading').style.display='none';}
   gl.viewport(0,0,canvas.width,canvas.height);
