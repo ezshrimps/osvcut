@@ -94,8 +94,10 @@ In our corpus, 226 clips use 4K mode (two $1920^2$ streams at 100\,fps), 12 use 
 
 \paragraph{Calibration.} Sample~0 of the primary \texttt{djmd} track carries 24 calibration slots; each holds $f_x,f_y,c_x,c_y$, five radial coefficients $k_1..k_5$ of the Kannala--Brandt model in a $3840^2$ calibration space, an extrinsic quaternion and a 14-point polygon outlining the camera body seen at the bottom of each image. A ray at angle $\theta$ from the optical axis and azimuth $\phi$ projects to
 \begin{equation}
-r(\theta)=\theta\,(1+k_1\theta^2+k_2\theta^4+k_3\theta^6+k_4\theta^8+k_5\theta^{10}),\quad
-(u,v)=\tfrac{W}{2}+s\big(f_x r\cos\phi + c_x-1920,\; f_y r\sin\phi + c_y-1920\big),
+\begin{aligned}
+r(\theta)&=\theta\,(1+k_1\theta^2+k_2\theta^4+k_3\theta^6+k_4\theta^8+k_5\theta^{10}),\\
+(u,v)&=\tfrac{W}{2}+s\big(f_x r\cos\phi + c_x-1920,\; f_y r\sin\phi + c_y-1920\big),
+\end{aligned}
 \end{equation}
 with stream scale $s=f_{\mathrm{digital}}/f_x$ (0.5065 in 4K mode).
 
@@ -153,7 +155,10 @@ All seam computations live in the camera body frame, so one seam serves every ou
 
 \paragraph{Minimum-disagreement path.} We align both strips half-way, $A_{1/2}(p)=A(p-\tfrac12F)$ and $B_{1/2}(p)=B(p+\tfrac12F)$, and find a closed path $\beta^*(\alpha)$ minimising
 \begin{equation}
-C(\alpha,\beta)=|A_{1/2}-B_{1/2}| + \tfrac14|\nabla A_{1/2}-\nabla B_{1/2}| + 3\,[\text{not both valid}] + 2\,[\text{room}<0.6^\circ] + 0.02\,|\beta-\bar\beta(\alpha)| + \lambda_t|\beta-\beta^*_{t-1}(\alpha)|
+\begin{aligned}
+C(\alpha,\beta)={}&|A_{1/2}-B_{1/2}| + \tfrac14|\nabla A_{1/2}-\nabla B_{1/2}| + 3\,[\text{not both valid}]\\
+&+ 2\,[\text{room}<0.6^\circ] + 0.02\,|\beta-\bar\beta(\alpha)| + \lambda_t|\beta-\beta^*_{t-1}(\alpha)|
+\end{aligned}
 \end{equation}
 by dynamic programming with slope $\le1$ row per column, starting and ending at the cheapest node so that the path closes around the ring.
 
