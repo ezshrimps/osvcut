@@ -168,8 +168,8 @@ def _wait_job(jid, timeout):
 def track_subject(clip_id, t0, t1, yaw, pitch, box_w=12.0, box_h=30.0, fov=90.0):
     c = _clip(clip_id)
     j = _post("/api/track", dict(src=c["src"], t0=t0, t1=t1, yaw=yaw, pitch=pitch, box_w=box_w, box_h=box_h, fov=fov))
-    if "error" in j:
-        raise ValueError(j["error"])
+    if "id" not in j:
+        raise ValueError(j.get("error") or "request failed")
     j = _wait_job(j["id"], 600)
     if not j or j["status"] != "done":
         return [_text(f"tracking {j['status'] if j else 'timed out'}: {(j or {}).get('error') or ''}")]
@@ -200,8 +200,8 @@ def render_cut(clip_id, start, end, keys=None, aspect="16:9", fps=30, speed=1.0,
     size = {"16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080]}.get(aspect, [1920, 1080])
     spec = _spec(clip_id, start, end, keys, size, fps, speed)
     j = _post("/api/jobs", dict(kind="export", spec=spec, title=title or f"AI cut {clip_id} {start:.1f}-{end:.1f}"))
-    if "error" in j:
-        raise ValueError(j["error"])
+    if "id" not in j:
+        raise ValueError(j.get("error") or "request failed")
     return [_text(f"export job {j['id']} queued ({spec['out'] - spec['in']:.1f}s source"
                   + (f" at {speed}x" if speed != 1 else "") + f", {size[0]}x{size[1]}). Poll job_status.")]
 
@@ -210,8 +210,8 @@ def render_sequence(cuts, title="", aspect="16:9", fps=30):
     size = {"16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080]}.get(aspect, [1920, 1080])
     specs = [_spec(cu["clip_id"], cu["start"], cu["end"], cu.get("keys"), size, fps, cu.get("speed", 1.0)) for cu in cuts]
     j = _post("/api/jobs", dict(kind="sequence", specs=specs, title=title or f"AI sequence ({len(specs)} cuts)", size=size, fps=fps))
-    if "error" in j:
-        raise ValueError(j["error"])
+    if "id" not in j:
+        raise ValueError(j.get("error") or "request failed")
     return [_text(f"sequence job {j['id']} queued with {len(specs)} cuts. Poll job_status.")]
 
 

@@ -138,6 +138,8 @@ def run(job):
             yy = float(np.interp(tt, T, Ys))
             keys.append(dict(t=round(float(tt), 3), yaw=round(((yy + 180) % 360) - 180, 2),
                              pitch=round(float(np.interp(tt, T, Ps)), 2), fov=fov))
+    for k in keys[:-1]:
+        k["ease"] = "linear"          # dense keys: linear interpolation, no stop at every key
     out = dict(keys=keys, lost_at=lost_at, track=track, vfov=vfov)
     json.dump(out, open(job["out"], "w", encoding="utf8"))
     print(f"progress {total}/{total}", flush=True)

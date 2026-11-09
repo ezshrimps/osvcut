@@ -199,6 +199,12 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **R.** CD 0.0628 vs 0.0629 (62/100, mean −0.0001, p = 0.028); CD-hard −0.0002 (p = 0.10); edge-hard −0.0007 (p = 0.5); fidelity-hard −0.0010 (p < 0.001).
 **C.** Statistically detectable but practically nil; not adopted (default ss = 1). Aliasing matters for residual measurements (E12) but not for where the seam goes.
 
+## E22 — An AI assistant edits through MCP only (case study)
+
+**M.** Acting as an assistant with only the MCP tools (`mcp_server.py`): `clip_overview` on a beach clip (contact sheet + transcript: "Oh, that's a bird! … That's a freaking ugly pigeon"), `look` at t = 11 s, yaw 40° → subject slightly left, re-aimed to 25°; `track_subject` on the trail clip from (43.5 s, yaw 78°, pitch −3°) → 22 keyframes, followed to the end; `render_sequence` with a little-planet intro (dist 1 → 0.15 → 0) on the beach cut and the tracked keys on the trail cut, 9:16, 30 fps.
+**R.** 11.5 s 1080×1920 film rendered and joined without manual edits; look calls 0.5–1.1 s, overview 2.5 s (cached transcript), tracking 5.5 s of footage in ~9 s. Found and fixed: tracked keys must carry linear easing when consumed outside the studio.
+**C.** The tool surface (overview → look → track → render) is sufficient for an assistant to make framing decisions it can verify visually before rendering — the step that failed in the first, contact-sheet-only experiment (subject out of frame).
+
 ---
 
 ## Open questions / next experiments
