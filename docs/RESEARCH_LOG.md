@@ -356,6 +356,12 @@ Re-run with the ±0.75° default (E42): ratio 0.92 / 0.83 / 0.80 / 0.72 / 0.60 /
 **R.** Centre prior 0 is better on every metric; 0.01 already loses most of the gain (the term, up to 0.08 at 4 deg off-centre, is as large as the photometric cost of 0.02-0.05 and drags the path to the middle regardless of agreement). The gradient weight barely matters. Full benchmark (grad 0.25, centre 0) vs the E42 default: CD 0.0269 vs 0.0298 (99/100), CD-hard 0.0398 vs 0.0434 (93/100), edge-hard 0.061 vs 0.088 (76/100), edge 0.034 vs 0.045 (67/100), step 0.0095 vs 0.0145 (86/100), fidelity-hard 0.960 vs 0.952. vs DP cut: CD 100/100 (-40 %), step 0.0095 vs 0.0109 (68/100, p = 4.5e-4), overall edge 0.034 vs 0.029 (n.s., p = 0.18); the cut keeps crisper edges only on the hard subset (0.061 vs 0.043, p = 3e-4). Temporal: excess flicker -0.022 [-0.068, +0.029], 1/8 clips above the reference (cut -0.033, 2/8). Re-runs with the new default: 8K CD 30/30 vs the cut (p = 2e-9), hard 27/30, step 27/30, overall edge n.s.; E41 ratio 0.78 -> 0.56 (0.42 top bin); live preview morph 0.040 vs cut 0.048 (49/60).
 **C.** Default `centre_w = 0`. With E29, E42 and E43 the flow seam is better than the DP cut on CD, exposure step and flicker, level on overall edge deviation, and behind only on edges at large parallax.
 
+## E44 — Ramp width re-checked without the centre prior (no change)
+
+**M.** ±0.5 / 0.75 / 1.0 / 1.5°, centre prior 0, 10 clips × 4 frames (`results/e44_ramp.json`).
+**R.** CD 0.0298 / 0.0299 / 0.0302 / 0.0310; fidelity-hard 0.964 / 0.957 / 0.951 / 0.938; edge-hard 0.050 / 0.050 / 0.049 / 0.046; edge 0.031 / 0.032 / 0.032 / 0.032; step equal.
+**C.** Without the centre prior the width matters much less than in E42; ±0.75° stays (wider buys a little hard-edge sharpness for CD and fidelity, narrower the reverse).
+
 ---
 
 ## Open questions / next experiments
