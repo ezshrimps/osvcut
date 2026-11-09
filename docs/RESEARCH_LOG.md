@@ -306,6 +306,13 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 **R.** (1) 10 clips × 4 frames: CD full flow 0.0345, per-column 0.0356, no warp 0.0471 — one displacement per column keeps ~91 % of the gain (beats the DP cut 31/40). (3) 5 clips with proxies, 40 frames: CD 0.057 → 0.050 (30/40, p = 8.7e-5), CD-hard 0.096 → 0.085 (29/39, p = 0.003); edge deviation n.s. (p ≥ 0.45). In the browser the morph changes only the pixels next to the seam.
 **C.** Adopted (rig v4). The live preview now morphs like the export, at a smaller gain (2 Hz tracks, proxy resolution).
 
+## E36 — Live-preview tracks were half an interval late
+
+**Q.** E35's live gain (CD 0.057 → 0.050) was well below an oracle that computes the tracks on the evaluated frame itself (0.044 cut / 0.0375 morph). Why?
+**M.** (1) Temporal smoothing: the track engine used the per-frame EMAs (flow, path, gains) and the path's temporal term at 2 Hz. (2) Time alignment: `tools_live_eval.py` with the evaluated frame shifted by ±0.25 s (`TSHIFT`).
+**R.** (1) Turning the smoothing off changed little (morph 0.0504 → 0.0491). (2) Shifting by +0.25 s helped (0.0437), −0.25 s did not: ffmpeg's `fps=2` filter had been feeding the frame from about half an interval *after* each sample time, while the shader looks sample k up at k/rate. With `select='gte(t, selected_n/rate − 0.01)'` the best shift is 0 and live CD is 0.0486 (cut) / **0.0413** (morph), 31/40, p = 6e-4 — down from 0.057 for the v3 live preview.
+**C.** Fixed in `proxy.seam_track` (exact sample times, no temporal smoothing between 2 Hz samples). The live preview's remaining gap to the oracle (0.041 vs 0.0375) is quantisation, 2° bins and interpolation between samples.
+
 ---
 
 ## Open questions / next experiments

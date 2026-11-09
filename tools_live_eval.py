@@ -59,7 +59,7 @@ def main():
         Fl = np.frombuffer(base64.b64decode(sm["flow"]), np.uint8).reshape(n, bins, 2).astype(np.float32)
         for k in range(nf):
             i = int((k + 0.5) / nf * n)
-            t = i / sm["rate"]
+            t = i / sm["rate"] + float(os.environ.get("TSHIFT", "0"))
             imgs = frame_at(rj[:-5] + ".mp4", t, lp)
             if imgs is None:
                 continue
@@ -77,6 +77,12 @@ def main():
             fa, fb = [up((Fl[i, :, j] / 255 - 0.5) * 2 * sm.get("flow_range", 4.0)) for j in (0, 1)]
             eng.ov_c = torch.tensor(path, dtype=torch.float32, device=dev)
             res = {}
+            if os.environ.get("ORACLE"):        # tracks computed on this very frame (upper bound for the track rate)
+                o = FlowStitch(pc, lenses, conf="photo", flow1d=True, flow_ema=0)
+                o.update(imgs)
+                path = np.asarray(o.fpath); fa, fb = [o.flow[j, 0].cpu().numpy() for j in (0, 1)]
+                eng.logr = np.array(o.logr)
+                eng.ov_c = torch.tensor(path, dtype=torch.float32, device=dev)
             for name, half, fl in (("live_cut", 0.5, 0.0), ("live_morph", 1.5, 1.0)):
                 eng.ov_w = torch.full((eng.fW,), half, device=dev)
                 f2 = np.stack([fa, fb])[:, None, :].repeat(eng.fH, 1) * fl

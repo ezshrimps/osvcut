@@ -69,8 +69,12 @@ def seam_track(proxy, cal, dur, lens_px, rate=2.0, bins=180):
     pc["dfl"] = cal["dfl"] * lens_px / cal["W"]
     pc["W"] = lens_px
     lenses = [Lens(pc, L) for L in pc["lenses"]]
-    eng = FlowStitch(pc, lenses, conf="photo", flow1d=True)
-    p = subprocess.Popen(["ffmpeg", "-v", "error", "-i", proxy, "-vf", f"fps={rate}", "-f", "rawvideo",
+    # 2 Hz samples are far apart: no temporal smoothing (the per-frame EMAs would lag by ~1 s; E36)
+    eng = FlowStitch(pc, lenses, conf="photo", flow1d=True, flow_ema=0.0, seam_ema=0.0, gain_ema=0.0, lam_t=0.0)
+    # sample k must be the frame at k/rate (the shader looks samples up at exactly that time); the fps filter
+    # picks frames about half an interval later (E36), so select the first frame at or after each k/rate instead
+    sel = f"select='gte(t\\,selected_n/{rate}-0.01)'"
+    p = subprocess.Popen(["ffmpeg", "-v", "error", "-i", proxy, "-vf", sel, "-fps_mode", "passthrough", "-f", "rawvideo",
                           "-pix_fmt", "yuv420p", "-"], stdout=subprocess.PIPE)
     fb = lens_px * 2 * lens_px * 3 // 2
     rows_p, rows_g, rows_f = bytearray(), bytearray(), bytearray()
