@@ -176,6 +176,13 @@ def test_spherical_injection_both_layouts():
         assert n.strip().rstrip(",") == "10", n
 
 
+# ---------------------------------------------------------------- search normalisation
+def test_traditional_simplified_folding():
+    from textnorm import norm
+    assert norm("這個鳥") == norm("这个鸟")
+    assert norm("我們說 Boat") == "我们说 boat"
+
+
 # ---------------------------------------------------------------- runner
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

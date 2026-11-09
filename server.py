@@ -235,7 +235,8 @@ class Handler(RangeHandler):
             return self._json(dict(status=j["status"], job=j["id"], progress=j["progress"]))
         if p == "/api/search":
             from urllib.parse import parse_qs
-            q = (parse_qs(u.query).get("q", [""])[0] or "").strip().lower()
+            from textnorm import norm
+            q = norm((parse_qs(u.query).get("q", [""])[0] or "").strip())
             hits = []
             if q:
                 for c in LIB.listing():
@@ -247,7 +248,7 @@ class Handler(RangeHandler):
                     except Exception:
                         continue
                     for sg in segs:
-                        if q in sg["text"].lower():
+                        if q in norm(sg["text"]):
                             hits.append(dict(clip=c["id"], name=c["name"], event=c.get("event"), start=sg["start"],
                                              end=sg["end"], text=sg["text"]))
             done = sum(1 for c in LIB.clips.values() if os.path.exists(analysis.transcript_path(c["id"])))
