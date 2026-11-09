@@ -979,7 +979,8 @@ $('genGo').onclick=async()=>{
 const libState={q:'',cat:'',sort:'new',onlyPrev:false};
 async function loadLibrary(){
   try{LIB=await (await fetch('/api/library',{cache:'no-store'})).json();}catch{return}
-  if(LIB.stale&&LIB.stale.length&&!window._staleShown){window._staleShown=true; toast(`拼接代码已更新（${LIB.stale.join(', ')}），请重启工作台服务器，盲测和预览才会用上新算法`)}
+  if(LIB.stale&&LIB.stale.length&&!window._staleShown){window._staleShown=true; {const seamMods=['seam.py','stitch.py','blindtest.py','proxy.py'], sm=LIB.stale.some(f=>seamMods.includes(f));
+    toast(sm?`拼接代码已更新（${LIB.stale.join(', ')}），请重启工作台服务器，盲测和预览才会用上新算法`:`工作台代码已更新（${LIB.stale.join(', ')}），重启服务器后生效（不影响拼缝和盲测）`,4000)}}
   $('libstat').textContent=LIB.scanning?`扫描中 ${LIB.scanned}/${LIB.total}`:`${LIB.clips.length} 段 · ${fmtDur(LIB.clips.reduce((a,c)=>a+(c.duration||0),0))}`;
   const cats=[...new Set(LIB.clips.map(c=>c.category).filter(Boolean))].sort();
   $('cats').innerHTML=['',...cats].map(k=>`<button class="chip${libState.cat===k?' on':''}" data-k="${esc(k)}">${k?esc(k.replace(/^\d+_/,'')):'全部'}</button>`).join('');
