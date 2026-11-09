@@ -285,6 +285,13 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 **R.** CD: flow seam 0.0345, no-warp 0.0471, DP cut 0.0456, DP cut ±1.5° 0.0500 — the flow seam beats its own no-warp version on 40/40 frames. Edge-hard: 0.075 (flow), 0.049 (no warp), 0.042 (cut). Exposure step: 0.0130 / 0.0128 / 0.0123 / 0.0125, no pair significant on this subset (p ≥ 0.25).
 **C.** The CD gain comes entirely from the flow warp, not from where the path runs; the warp is also what raises the edge deviation. The step difference is ≈ 0.3 % in brightness ratio and not attributable to the warp; practically invisible. No change.
 
+## E33 — Warp strength sweep
+
+**Q.** E32 shows the warp buys CD at the price of edge energy. Is a partial warp a better compromise?
+**M.** `FlowStitch(warp=k)` scales the measured displacement; k ∈ {0, 0.5, 0.75, 1, 1.25}; E11 protocol, 10 clips × 4 frames (`results/e33_warp.json`, `paper/data/warp_sweep.dat`).
+**R.** CD 0.052 / 0.045 / 0.039 / **0.035** / 0.037; edge-hard 0.059 / 0.093 / 0.085 / **0.075** / 0.094. k = 1 beats 0.75 on CD 40/40 and edge 26/40 (p ≤ 0.001), and 1.25 on CD 38/40 and edge 34/40 (p < 1e-7).
+**C.** No compromise exists along this axis: a partial warp leaves two half-aligned copies of an edge, an over-warp creates new ones. Both metrics peak at the measured displacement, which also validates the flow's magnitude under the corrected scale. Default stays k = 1; the remaining edge cost versus the cut is the price of morphing, not of a mis-scaled flow.
+
 ---
 
 ## Open questions / next experiments

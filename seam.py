@@ -305,7 +305,7 @@ class FlowStitch(SmartStitch):
 
     def __init__(self, cal, lenses, device=None, fband=4.5, fres=0.2, ramp=1.5, flow_ema=0.5,
                  max_flow=4.0, center="dp", ss=1, bands=1, wide_deg=6.0, conf="fb", flow="farneback",
-                 narrow="off", narrow_warp=3.0, **kw):
+                 narrow="off", narrow_warp=3.0, warp=1.0, **kw):
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         super().__init__(cal, lenses, device=device, **kw)
         self.do_dp = False
@@ -317,6 +317,7 @@ class FlowStitch(SmartStitch):
         # narrow-overlap sector (E30): measure the across-seam disparity with a wide correlation search instead of
         # flow, and spread the warp over +-narrow_warp deg (the blend transition stays narrow)
         self.narrow, self.narrow_warp = narrow, float(narrow_warp)
+        self.warp = float(warp)            # scale of the half-way alignment (E33: CD vs edge trade-off)
         self.ov_rw = None
         self._wstrip = None
         self.fband, self.fres, self.ramp, self.flow_ema, self.max_flow = fband, fres, ramp, flow_ema, max_flow
@@ -514,7 +515,7 @@ class FlowStitch(SmartStitch):
         gy = ((self.fband - beta) / (2 * self.fband)) * 2 - 1
         Fs = F.grid_sample(self.flow[None], torch.stack([gx, gy], -1)[None], align_corners=False,
                            padding_mode="zeros")[0] * inb
-        fa, fb = Fs[0], Fs[1]
+        fa, fb = Fs[0] * self.warp, Fs[1] * self.warp
         tw = t
         if self.ov_rw is not None:                                  # wider warp ramp in the narrow sector
             rw = _circ_interp(self.ov_rw, col)
