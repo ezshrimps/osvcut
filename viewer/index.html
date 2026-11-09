@@ -397,6 +397,12 @@ body.bt .btview .btpair img{cursor:default}
         <textarea id="spec" readonly spellcheck="false"></textarea>
         <div class="btns" style="margin-top:8px"><button class="btn" id="copyspec">复制 spec JSON</button></div>
       </details>
+      <div class="row"><label>平台预设</label><select id="platSel"><option value="">自定义</option>
+        <option value="flat|0.5625|30|20">抖音 / 小红书 / 视频号（竖屏 1080×1920）</option>
+        <option value="flat|1.7778|30|20">YouTube / B 站（横屏 1920×1080）</option>
+        <option value="flat|0.8|30|20">Instagram（4:5）</option>
+        <option value="flat|1|30|20">方形 1:1</option>
+        <option value="360|0|30|18">YouTube 360° / VR（3840×1920 全景）</option></select></div>
       <div class="row"><label>导出类型</label><select id="projSel"><option value="flat">平面视频（按关键帧取景）</option><option value="360">360° 全景视频（YouTube / VR）</option></select></div>
       <div class="row"><label>拼缝</label><select id="seamSel"><option value="flow">光流对齐（推荐）</option><option value="smart">最优切缝</option><option value="legacy">旧版羽化</option></select></div>
       <div class="row"><label>画质</label><select id="cqSel"><option value="18">高（大文件）</option><option value="20" selected>标准</option><option value="24">小文件</option></select>
@@ -717,6 +723,10 @@ function syncControls(){
 $('fov').oninput=e=>{state.hfov=+e.target.value;syncControls()};
 $('dist').oninput=e=>{state.dist=+e.target.value;syncControls()};
 $('aspect').onchange=e=>{state.aspect=+e.target.value;layout();writeSpec()};
+$('platSel').onchange=e=>{ const v=e.target.value; if(!v) return; const [proj,asp,fps,cq]=v.split('|');
+  $('projSel').value=proj; if(proj==='flat'){ $('aspect').value=asp; state.aspect=+asp; layout(); }
+  $('fpsSel').value=fps; $('cqSel').value=cq; writeSpec(); toast('已按「'+e.target.selectedOptions[0].text+'」设置画幅、帧率和画质'); };
+['aspect','projSel','fpsSel','cqSel'].forEach(id=>$(id).addEventListener('change',e=>{ if(e.isTrusted) $('platSel').value=''; }));
 ['projSel','seamSel','cqSel','fpsSel','speedSel','nadirSel','capSel','freezeSel','slowSel'].forEach(id=>$(id).onchange=()=>writeSpec());
 $('speedSel').addEventListener('change',()=>{vid.playbackRate=+$('speedSel').value;$('rate').value=String(Math.min(1,+$('speedSel').value))});
 $('grid').onchange=e=>state.grid=e.target.checked;
