@@ -9,6 +9,8 @@
 \usepackage{hyperref}
 \usepackage{url}
 \usepackage{caption}
+\usepackage{microtype}
+\emergencystretch=1.5em
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,fit}
 \usepackage{pgfplots}
@@ -182,6 +184,7 @@ by dynamic programming with slope $\le1$ row per column, starting and ending at 
 \centering\small
 \caption{Seam benchmark, $n=100$ frames from 20 clips; means with 95\% bootstrap intervals for CD. Runtime is update+render of one $3840\times1920$ frame on an RTX 4070 Ti.}
 \label{tab:bench}
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{lcccccr}
 \toprule
 Method & CD $\downarrow$ & CD hard $\downarrow$ & Edge hard $\downarrow$ & Fidelity hard $\uparrow$ & Step $\downarrow$ & ms \\
@@ -192,7 +195,7 @@ Flow, ramp centred in overlap    & 0.085 [.079,.091] & 0.119 & 0.076 & 0.870 & 0
 Flow + DP path, $\pm3^\circ$     & 0.071 [.066,.076] & 0.097 & 0.086 & 0.884 & \textbf{0.023} & 180 \\
 \textbf{Flow + DP path, $\pm1.5^\circ$ (ours)} & \textbf{0.063} [.059,.067] & \textbf{0.084} & 0.065 & 0.929 & 0.025 & 180 \\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 \begin{figure}[t]
