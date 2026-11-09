@@ -342,6 +342,7 @@ class FlowStitch(SmartStitch):
         flow = torch.tensor(flow, dtype=torch.float32, device=self.dev)
         self.flow = flow if self.flow is None else self.flow_ema * self.flow + (1 - self.flow_ema) * flow
         self.last_conf = conf
+        self.last_raw = F_          # raw Farneback flow (strip pixels), for diagnostics
 
     def _dirs(self, alpha_deg, beta_deg):
         a, b = torch.deg2rad(alpha_deg), torch.deg2rad(beta_deg)

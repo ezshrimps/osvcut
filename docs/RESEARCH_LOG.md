@@ -154,6 +154,13 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **M.** Studio tab 「拼缝盲测」 (`blindtest.py`): random clip, random time, azimuth on the seam ring drawn 80 % from parallax-heavy columns (E11 definition); a 720×540, 55° rectilinear close-up centred on the seam, upright (body Z up), rendered by two of {legacy, smart, flow}; left/right randomised; the rater answers left / same / right (keys ← ↓ →). Method names are hidden until the stats view. Votes are appended to `cache/blindtest/votes.jsonl` with clip, time, azimuth and the hidden methods; win rates and Bradley–Terry scores (ties = ½) are computed by `blindtest.stats()`.
 **Status.** Waiting for human raters (the author of the methods does not vote).
 
+## E15 — Gravity-aligned ground-plane parallax prior (negative result)
+
+**Q.** The upright camera's seam ring passes under the user, where the ground is 1–1.5 m away. Can a ground plane (known "down" from the IMU) predict the lens-to-lens parallax, so the narrow handle-side overlap can be corrected without flow?
+**M.** `tools_ground_probe.py`: on two pickleball-court clips (8 frames each), confident raw Farneback flow on the seam strip below −15° elevation; fit flow_β = k·sin(−elevation) + c (sin(−el)/h ∝ 1/depth for a plane at height h).
+**R.** R² = 0.00–0.07 per frame; k = +0.155 ± 0.073 on one clip and −0.159 ± 0.157 on the other (sign flips); median |flow_β| on measurable ground 0.07–0.26°.
+**C.** Where the overlap is wide enough to measure, ground parallax is small and not explained by a plane model; the visible ground breaks sit in the ~1° handle-side overlap where neither flow nor a weak geometric prior has support. Not pursued; the handle sector is a hardware limit (both lenses are occluded there).
+
 ---
 
 ## Open questions / next experiments
