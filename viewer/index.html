@@ -302,7 +302,7 @@ body.bt .btview .btpair img{cursor:default}
       <div class="row"><label>视场角</label><input type="range" id="fov" min="20" max="340" step="1"><output id="fovv"></output></div>
       <div class="row"><label>畸变</label><input type="range" id="dist" min="0" max="1" step="0.01"><output id="distv"></output></div>
       <div class="row"><label>输出画幅</label>
-        <select id="aspect"><option value="0">自由（铺满）</option><option value="1.7778">16:9</option><option value="0.5625">9:16</option><option value="1">1:1</option></select>
+        <select id="aspect"><option value="0">自由（铺满）</option><option value="1.7778">16:9</option><option value="0.5625">9:16</option><option value="1">1:1</option><option value="0.8">4:5</option><option value="2.3529">2.39:1 电影</option></select>
       </div>
       <label class="check"><input type="checkbox" id="grid"> 经纬网格（检查地平线是否水平）</label>
     </section>
@@ -544,7 +544,8 @@ function writeSpec(){
   const c=state.clip; if(!c) return;
   if(typeof scheduleSave==='function') scheduleSave();
   const ks=[...state.keys].sort((a,b)=>a.t-b.t);
-  const size=state.aspect&&Math.abs(state.aspect-0.5625)<.01?[1080,1920]:state.aspect===1?[1080,1080]:[1920,1080];
+  const SIZES=[[0.5625,[1080,1920]],[1,[1080,1080]],[0.8,[1080,1350]],[2.3529,[1920,816]],[1.7778,[1920,1080]]];
+  const size=(SIZES.find(([a])=>state.aspect&&Math.abs(state.aspect-a)<.01)||[0,[1920,1080]])[1];
   let tin=ks.length?Math.max(0,ks[0].t):0, tout=ks.length?Math.min(vid.duration||ks.at(-1).t+1,ks.at(-1).t+1):(vid.duration||0);
   if(state.inP!=null) tin=state.inP; if(state.outP!=null) tout=state.outP;
   const spec={src:c.src,in:r2(c.in+tin),out:r2(c.in+tout),proj:'flat',size,fps:+($('fpsSel')?.value||50),seam:$('seamSel')?.value||'flow',cq:+($('cqSel')?.value||20),...(+($('speedSel')?.value||1)!==1?{speed:+$('speedSel').value}:{}),
@@ -1023,7 +1024,7 @@ async function editSeqItem(s){
   const off=s.spec.in-(c.in||0);
   state.keys=s.spec.keys.map(k=>Object.assign({},k,{t:k.t+off}));
   state.inP=s.spec.in-(c.in||0); state.outP=s.spec.out-(c.in||0);
-  state.aspect=s.spec.size[0]>s.spec.size[1]?1.7778:s.spec.size[0]<s.spec.size[1]?0.5625:1; $('aspect').value=String(state.aspect);
+  const ar=s.spec.size[0]/s.spec.size[1]; const opts=[1.7778,0.5625,1,0.8,2.3529]; state.aspect=opts.reduce((b,a)=>Math.abs(a-ar)<Math.abs(b-ar)?a:b,opts[0]); $('aspect').value=String(state.aspect);
   state.follow=true; $('follow').checked=true; layout(); renderKeys();
   vid.addEventListener('loadedmetadata',()=>{vid.currentTime=state.inP},{once:true});
 }
