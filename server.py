@@ -299,6 +299,16 @@ class Handler(RangeHandler):
                 job = new_job("sequence", title, None, None, cmd=[sys.executable, "-u", "sequence.py", jid_spec], output=dst)
                 return self._json({k: v for k, v in job.items() if not k.startswith("_")})
             return self._json({"error": "unknown kind"}, 400)
+        if p == "/api/debug/snapshot":
+            # dev aid: save a canvas dataURL to cache/debug/<name>.png (never served publicly, gitignored)
+            import base64
+            b = self._body()
+            name = re.sub(r"[^A-Za-z0-9_.-]", "_", b.get("name", "snap"))[:60]
+            data = b.get("data", "").split(",", 1)[-1]
+            d = os.path.join(HERE, "cache", "debug")
+            os.makedirs(d, exist_ok=True)
+            open(os.path.join(d, name + ".png"), "wb").write(base64.b64decode(data))
+            return self._json({"ok": True})
         if p == "/api/blindtest/next":
             try:
                 with libmod._thumb_lock:          # share the GPU politely with thumbnail generation

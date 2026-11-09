@@ -54,7 +54,45 @@ def transcode(src, out, lens_px, duration):
     raise SystemExit("transcode failed")
 
 
-def rig(src, lens_px):
+def seam_track(proxy, cal, dur, lens_px, rate=2.0, bins=180):
+    """Min-difference seam path + per-azimuth exposure field sampled at `rate` Hz from the proxy itself
+    (calibration rescaled to proxy pixels), quantised to bytes.
+    path: beta* in [-4.5, 4.5] deg -> u8;  gains: log(slave/master) per 5-deg bin + global mean -> u8."""
+    import base64
+    import copy
+    import torch
+    from osvcut import Lens, yuv420_to_rgb
+    from seam import SmartStitch
+    pc = copy.deepcopy(cal)
+    pc["dfl"] = cal["dfl"] * lens_px / cal["W"]
+    pc["W"] = lens_px
+    lenses = [Lens(pc, L) for L in pc["lenses"]]
+    eng = SmartStitch(pc, lenses)
+    p = subprocess.Popen(["ffmpeg", "-v", "error", "-i", proxy, "-vf", f"fps={rate}", "-f", "rawvideo",
+                          "-pix_fmt", "yuv420p", "-"], stdout=subprocess.PIPE)
+    fb = lens_px * 2 * lens_px * 3 // 2
+    rows_p, rows_g = bytearray(), bytearray()
+    n, total = 0, max(1, int(dur * rate))
+    while True:
+        raw = p.stdout.read(fb)
+        if len(raw) < fb:
+            break
+        im = yuv420_to_rgb(raw, lens_px, 2 * lens_px)
+        eng.update([im[None, :, :, :lens_px], im[None, :, :, lens_px:]])
+        pth = np.asarray(eng.path).reshape(bins, -1).mean(1)       # beta* per 2-deg bin
+        rows_p += bytes(np.clip(np.round((pth / 4.5 * 0.5 + 0.5) * 255), 0, 255).astype(np.uint8))
+        lr = np.asarray(eng.logr)                                  # (3, 72)
+        lrg = np.concatenate([lr, lr.mean(1, keepdims=True)], 1).T  # (73, 3)
+        rows_g += bytes(np.clip(np.round((np.clip(lrg, -1, 1) * 0.5 + 0.5) * 255), 0, 255).astype(np.uint8).ravel())
+        n += 1
+        if n % 5 == 0:
+            print(f"progress {900 + int(90 * min(1, n / total))}/1000", flush=True)
+    p.wait()
+    return dict(rate=rate, n=n, bins=bins, gain_bins=72,
+                path=base64.b64encode(bytes(rows_p)).decode(), gains=base64.b64encode(bytes(rows_g)).decode())
+
+
+def rig(src, lens_px, proxy=None):
     import torch
     from osvcut import Lens, level_frames
     from stitch import load_calib, qmat
@@ -89,7 +127,8 @@ def rig(src, lens_px):
     for t in grid:
         M = Ms[min(np.searchsorted(ts, t), len(Ms) - 1)]
         qs.append([round(v, 5) for v in rot_to_quat(np.asarray(M))])
-    return dict(version=1, lens_px=lens_px, width=2 * lens_px, height=lens_px, lenses=lenses,
+    seam = seam_track(proxy, cal, dur, lens_px) if proxy else None
+    return dict(version=2, lens_px=lens_px, width=2 * lens_px, height=lens_px, lenses=lenses, seam=seam,
                 gain_slave=np.exp(-lr / 2).round(4).tolist(), gain_master=np.exp(lr / 2).round(4).tolist(),
                 level_rate=15.0, level_q=qs, duration=dur, theta_cut_deg=98.0)
 
@@ -100,6 +139,6 @@ if __name__ == "__main__":
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src],
                                capture_output=True, text=True).stdout or 0)
     transcode(src, out, lens_px, dur)
-    r = rig(src, lens_px)
+    r = rig(src, lens_px, proxy=out)
     json.dump(r, open(out_rig, "w"), separators=(",", ":"))
     print("progress 1000/1000", flush=True)

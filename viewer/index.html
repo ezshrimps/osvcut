@@ -351,6 +351,7 @@ precision highp float;
 uniform sampler2D tex; uniform vec2 res; uniform float yaw,pitch,hfov,dist; uniform int grid;
 uniform int live; uniform mat3 Mb, R0, R1; uniform vec4 k0, k1; uniform float k05, k15;
 uniform vec2 f0, f1, c0, c1; uniform sampler2D rlimTex; uniform float lensPx, thetaCut; uniform vec3 g0, g1;
+uniform int seamOn; uniform sampler2D seamTex, gainTex, gglobTex; uniform float seamRows, seamRate, vtime;
 vec4 lensSample(int i, vec3 db){
   mat3 R = i==0 ? R0 : R1; vec4 k = i==0 ? k0 : k1; float k5 = i==0 ? k05 : k15;
   vec2 f = i==0 ? f0 : f1; vec2 c = i==0 ? c0 : c1;
@@ -363,7 +364,8 @@ vec4 lensSample(int i, vec3 db){
   float rc = min(rpx, lim);
   vec2 px = c + vec2(cos(ph), sin(ph)*f.y/f.x)*rc;
   px = clamp(px, vec2(0.5), vec2(lensPx-0.5));
-  vec3 col = texture(tex, vec2((px.x+float(i)*lensPx)/(2.0*lensPx), px.y/lensPx)).rgb * (i==0 ? g0 : g1);
+  vec3 col = texture(tex, vec2((px.x+float(i)*lensPx)/(2.0*lensPx), px.y/lensPx)).rgb;
+  if(seamOn==0) col *= (i==0 ? g0 : g1);
   return vec4(col, valid);
 }
 out vec4 o; const float PI=3.14159265359;
@@ -388,7 +390,20 @@ void main(){
     vec3 db = normalize(Mb*v);
     vec4 a = lensSample(0, db), b = lensSample(1, db);
     float beta = degrees(asin(clamp(db.y,-1.0,1.0)));
-    float t = smoothstep(-1.5, 1.5, beta);
+    float t;
+    if(seamOn==1){
+      float alpha = fract(atan(db.z, db.x)/6.28318530718 + 1.0);
+      float row = (vtime*seamRate + 0.5)/seamRows;
+      float bstar = (texture(seamTex, vec2(alpha, row)).r - 0.5)*9.0;
+      t = clamp((beta - bstar)/1.0 + 0.5, 0.0, 1.0); t = t*t*(3.0-2.0*t);
+      vec3 lr = (texture(gainTex, vec2(alpha, row)).rgb - 0.5)*2.0;
+      vec3 gmean = (texture(gglobTex, vec2(0.5, row)).rgb - 0.5)*2.0;
+      vec3 l = gmean + (lr - gmean)*clamp(1.0-abs(beta)/45.0, 0.0, 1.0);
+      a.rgb = pow(pow(max(a.rgb,0.0), vec3(2.2))*exp(-l*0.5), vec3(1.0/2.2));
+      b.rgb = pow(pow(max(b.rgb,0.0), vec3(2.2))*exp(l*0.5), vec3(1.0/2.2));
+    } else {
+      t = smoothstep(-1.5, 1.5, beta);
+    }
     float wa = (1.0-t)*a.w + 1e-4*a.w + (db.y<0.0 ? 1e-6 : 0.0);
     float wb = t*b.w + 1e-4*b.w + (db.y>=0.0 ? 1e-6 : 0.0);
     c = (a.rgb*wa + b.rgb*wb)/(wa+wb);
@@ -413,13 +428,31 @@ function sh(t,s){const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShade
 const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-const U={};['res','yaw','pitch','hfov','dist','grid','live','Mb','R0','R1','k0','k1','k05','k15','f0','f1','c0','c1','rlimTex','lensPx','thetaCut','g0','g1','tex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const U={};['seamOn','seamTex','gainTex','gglobTex','seamRows','seamRate','vtime','res','yaw','pitch','hfov','dist','grid','live','Mb','R0','R1','k0','k1','k05','k15','f0','f1','c0','c1','rlimTex','lensPx','thetaCut','g0','g1','tex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 gl.uniform1i(U.tex,0); gl.uniform1i(U.rlimTex,1); gl.uniform1i(U.live,0);
+gl.uniform1i(U.seamTex,2); gl.uniform1i(U.gainTex,3); gl.uniform1i(U.gglobTex,4); gl.uniform1i(U.seamOn,0);
+const seamT=gl.createTexture(), gainT=gl.createTexture(), gglobT=gl.createTexture();
+function b64bytes(s){const b=atob(s), u=new Uint8Array(b.length); for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i); return u}
+function tex2d(unit,t,w,h,ifmt,fmt,data,wrapS){gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT,1); gl.texImage2D(gl.TEXTURE_2D,0,ifmt,w,h,0,fmt,gl.UNSIGNED_BYTE,data);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,wrapS); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT,4); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex);}
+
 const rlimT=gl.createTexture();
 let RIG=null;
 function setRig(r){
   RIG=r;
-  if(!r){gl.uniform1i(U.live,0);return}
+  if(!r){gl.uniform1i(U.live,0);gl.uniform1i(U.seamOn,0);return}
+  $('genbox').style.display='none';
+  const sm=r.seam;
+  if(sm&&sm.n>0){
+    const P=b64bytes(sm.path), G=b64bytes(sm.gains), n=sm.n, gb=sm.gain_bins;
+    const loc=new Uint8Array(n*gb*3), glo=new Uint8Array(n*3);
+    for(let i=0;i<n;i++){loc.set(G.subarray(i*(gb+1)*3,i*(gb+1)*3+gb*3),i*gb*3); glo.set(G.subarray(i*(gb+1)*3+gb*3,(i+1)*(gb+1)*3),i*3)}
+    tex2d(2,seamT,sm.bins,n,gl.R8,gl.RED,P,gl.REPEAT); tex2d(3,gainT,gb,n,gl.RGB8,gl.RGB,loc,gl.REPEAT); tex2d(4,gglobT,1,n,gl.RGB8,gl.RGB,glo,gl.CLAMP_TO_EDGE);
+    gl.uniform1f(U.seamRows,n); gl.uniform1f(U.seamRate,sm.rate); gl.uniform1i(U.seamOn,1);
+  } else gl.uniform1i(U.seamOn,0);
   const colMajor=m=>[m[0][0],m[1][0],m[2][0],m[0][1],m[1][1],m[2][1],m[0][2],m[1][2],m[2][2]];
   r.lenses.forEach((L,i)=>{
     gl.uniformMatrix3fv(U['R'+i],false,colMajor(L.R));
@@ -601,7 +634,7 @@ function frame(){
   gl.viewport(0,0,canvas.width,canvas.height);
   gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.yaw,state.yaw*D2R);gl.uniform1f(U.pitch,state.pitch*D2R);
   gl.uniform1f(U.hfov,Math.min(state.hfov,maxFov(state.dist))*D2R);gl.uniform1f(U.dist,state.dist);gl.uniform1i(U.grid,state.grid?1:0);
-  if(RIG) gl.uniformMatrix3fv(U.Mb,false,rigMatrix(vid.currentTime||0));
+  if(RIG){gl.uniformMatrix3fv(U.Mb,false,rigMatrix(vid.currentTime||0)); gl.uniform1f(U.vtime,vid.currentTime||0);}
   gl.drawArrays(gl.TRIANGLES,0,3);
   drawMini(); drawTimeline(); updateTxHighlight();
   const d=vid.duration||0;$('time').textContent=`${vid.currentTime.toFixed(2)} / ${d.toFixed(2)}`;

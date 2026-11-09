@@ -119,7 +119,8 @@ class FrameReader:
     def _start(self,hw):
         f,t0,t1,step,W=self.args
         return subprocess.Popen(["ffmpeg","-v","error"]+(["-hwaccel","cuda"] if hw else [])+["-ss",str(t0),"-to",str(t1),"-i",f,
-            "-filter_complex",f"[0:v:0][0:v:1]hstack,select='not(mod(n\\,{step}))'","-fps_mode","passthrough",
+            "-filter_complex",(f"[0:v:0][0:v:1]hstack,select='not(mod(n\\,{step}))'" if step<=2 else
+                f"[0:v:0]select='not(mod(n\\,{step}))'[a];[0:v:1]select='not(mod(n\\,{step}))'[b];[a][b]hstack"),"-fps_mode","passthrough",
             "-f","rawvideo","-pix_fmt","yuv420p","-"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
     def _run(self):
         if self.first is not None:

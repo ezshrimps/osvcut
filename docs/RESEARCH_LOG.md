@@ -174,6 +174,25 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **R.** Original serial loop 39.8 s → threaded decode/encode + GPU yuv→rgb 30.8 s (NVDEC vs CPU decode made no difference: 30.8 vs 31.2 s, the loop is analysis-bound) → seam analysis every 2nd frame 23.9 s → **analysis in a worker thread, every frame, render uses the latest finished analysis (≤ 1 frame behind) 17.2 s** (2.3× faster than the original). Flicker on Y with async analysis 1.394 vs 1.361 synchronous (reference 1.510).
 **Profile (per 2880×1440 frame, synchronous):** decode 22 ms (CPU) / 14 ms (NVDEC), upload 6 ms, flow analysis 48 ms (two Farneback passes on 1800×46 strips + DP), render 26 ms, download 4 ms.
 
+## E18 — Rolling shutter revisited with a per-pixel model (negative result)
+
+**Q.** E9 used the median flow over the whole ring, where an azimuth-dependent rolling-shutter effect could cancel. Does a per-pixel model explain the seam flow?
+**M.** `tools_rs_model.py`: for each confident seam pixel with body direction u, the two lenses read it at rows y0, y1; with readout time τ the second lens sees it Δt = τ(y1−y0)/H later, so the predicted lens-to-lens displacement is −(ω×u)Δt with ω the body angular velocity from the IMU. Fit τ by least squares over ~1.5 M pixels from 30 frames; control: ω taken from shuffled frames.
+**R.** Beach clip (median 33°/s, max 94°/s): τ = +4.7 ms, R² = −0.002 (control R² = −0.002). Trail clip (median 18°/s, max 585°/s): τ = −0.8 ms, R² = 0.000 (control 0.000). RMS measured flow 0.21–0.24° is unchanged by the model.
+**C.** Confirms E9 with a model that cannot cancel: rolling shutter does not contribute measurably to seam misalignment on this camera.
+
+## E19 — No systematic calibration bias along the seam
+
+**Q.** A ~2° far-field step seen near the handle-side sector in one frame: calibration error at extreme field angles?
+**M.** `tools_calib_bias.py`: per 10° azimuth bin, median confident flow in each of 30 frames; across frames: mean, s.d., t-statistic. A calibration error keeps its sign from frame to frame.
+**R.** RMS of the per-bin mean bias 0.044° (beach) and 0.039° (trail), vs. per-frame s.d. ≈ 0.12°; bins with |t| > 4: 0/36 and 1/36.
+**C.** The factory calibration is accurate around the whole ring; large local misalignments are frame-specific (near objects, water glints), i.e. parallax/appearance, not geometry. Online extrinsic refinement is not needed for this unit.
+
+## E20 — Seam quality in the live browser preview
+
+**M.** `proxy.py` now also samples the min-difference DP seam path (2° bins) and the per-azimuth exposure field (5° bins + global) at 2 Hz from the proxy itself (calibration rescaled to proxy pixels), quantised to bytes (98 samples, 88 KB for 49 s; +3 s generation time). The shader looks both up by playback time (linear between samples) and applies a 1° cut at β*(α) with local gains, instead of a fixed ±1.5° crossfade at β = 0.
+**R.** Rendered views differ (mean |Δ| 12.8 grey levels at seam-centred views); the cut moves off near-field content (|β*| up to 2.7°). Parallax morphing remains export-only.
+
 ---
 
 ## Open questions / next experiments
