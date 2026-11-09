@@ -8,7 +8,7 @@ import numpy as np
 import cv2
 import torch
 
-from osvcut import Lens, dev, level_frames, view_dirs, view_dirs_eye, cam_rot
+from osvcut import Lens, dev, level_frames, view_dirs, view_dirs_eye, cam_rot, grade, nadir_patch
 from stitch import load_calib
 from seam import FlowStitch
 from eval_seams import grab_pair
@@ -40,17 +40,23 @@ def _jpeg(img_t, q=88):
     return cv2.imencode(".jpg", im, [cv2.IMWRITE_JPEG_QUALITY, q])[1].tobytes()
 
 
-def view_jpeg(clip, t, yaw, pitch, fov=90.0, dist=0.0, w=960, h=540):
+def view_jpeg(clip, t, yaw, pitch, fov=90.0, dist=0.0, w=960, h=540, grade_=None, nadir=0.0, q=88):
+    """grade_ / nadir: the studio's colour grade and nadir patch, so a still matches the export."""
     t = max(0.0, min(t, max(clip.get("duration", 0) - 0.05, 0)))
     C = torch.tensor(cam_rot(yaw, pitch), dtype=torch.float32, device=dev)
     if dist > 1e-3:
         base, valid = view_dirs_eye(w, h, fov, dist)
     else:
-        base, valid = view_dirs("flat", w, h, fov), None
-    out = _render(clip["path"], t, base @ C.T)
+        base, valid = view_dirs("flat", w, h, min(fov, 170.0)), None
+    d = base @ C.T
+    out = _render(clip["path"], t, d)
+    if nadir > 0:
+        out = nadir_patch(out, d, float(nadir))
+    if grade_:
+        out = grade(out, grade_)
     if valid is not None:
         out = out * valid
-    return _jpeg(out)
+    return _jpeg(out, q)
 
 
 def sheet_jpeg(clip, n=6, W=1024):

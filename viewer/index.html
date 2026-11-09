@@ -312,6 +312,7 @@ body.bt .btview .btpair img{cursor:default}
       <tr><td>拖动画面</td><td>转视角</td><td>滚轮</td><td>缩放视场角</td></tr>
       <tr><td>时间线拖动关键帧</td><td>改时间</td><td>右键关键帧</td><td>删除</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>撤销（关键帧、入出点）</td><td><kbd>Ctrl</kbd>+<kbd>Y</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>重做</td></tr>
+      <tr><td><kbd>P</kbd></td><td>高清截图（4K 静帧，完整拼缝）</td><td></td><td></td></tr>
       <tr><td><kbd>?</kbd></td><td>本帮助</td><td>盲测页 <kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></td><td>左 / 一样 / 右</td></tr>
     </table>
   </div></div>
@@ -381,6 +382,7 @@ body.bt .btview .btpair img{cursor:default}
       <h2>剪辑与导出</h2>
       <div class="btns">
         <button class="btn primary" id="addkf">＋ 当前视角（K）</button>
+        <button class="btn" id="snapBtn" title="当前时刻、当前视角，用完整光流拼缝渲染 4K 静帧（含调色、补地）">📷 高清截图（P）</button>
         <button class="btn" id="loadai" style="display:none">载入 AI 方案</button>
         <button class="btn" id="clearkf">清空</button>
       </div>
@@ -739,6 +741,28 @@ document.querySelectorAll('.gpresets [data-g]').forEach(b=>b.onclick=()=>{ const
 $('gReset').onclick=()=>{ GRADE.forEach(([id])=>{ $(id).value=0; $(id+'v').textContent='0'; }); writeSpec(); };
 $('follow').onchange=e=>state.follow=e.target.checked;
 $('addkf').onclick=addKey;
+// high-resolution still of the current view: server renders it with the full flow seam (not the live shader),
+// at 3840 px on the long side, with the same grade / nadir patch as an export
+let snapBusy=false;
+async function snapshot(){
+  const c=state.clip; if(!c||!c.lib){ toast('高清截图需要素材库里的片段'); return; }
+  if(snapBusy) return; snapBusy=true;
+  const ar=state.aspect||(canvas.width/canvas.height), L=3840;
+  const w=Math.round((ar>=1?L:L*ar)/2)*2, h=Math.round((ar>=1?L/ar:L)/2)*2;
+  const t=(c.in||0)+(vid.currentTime||0), fov=Math.min(state.hfov,maxFov(state.dist));
+  const name=`${((c.raw&&c.raw.name)||c.id).replace(/\.[^.]+$/,'')}_${t.toFixed(2)}s.jpg`;
+  const g=gradeVals(), nd=+($('nadirSel')?.value||0);
+  const qs=new URLSearchParams({t:t.toFixed(3),yaw:normYaw(state.yaw).toFixed(2),pitch:state.pitch.toFixed(2),fov:fov.toFixed(2),
+    dist:state.dist.toFixed(3),w,h,q:95,dl:name,...(Object.keys(g).length?{grade:JSON.stringify(g)}:{}),...(nd>0?{nadir:nd}:{})});
+  toast(`正在渲染 ${w}×${h} 静帧…`,8000);
+  try{
+    const r=await fetch(`/api/clip/${c.id}/view?${qs}`); if(!r.ok) throw new Error((await r.json()).error||r.status);
+    const a=document.createElement('a'); a.href=URL.createObjectURL(await r.blob()); a.download=name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),5000); toast(`已保存 ${name}（${w}×${h}）`);
+  }catch(err){ toast('截图失败：'+String(err.message||err).slice(-120),5000); }
+  finally{ snapBusy=false; }
+}
+$('snapBtn').onclick=snapshot;
 function addKey(){state.keys=state.keys.filter(k=>Math.abs(k.t-vid.currentTime)>0.02);
   state.keys.push({t:vid.currentTime,yaw:normYaw(state.yaw),pitch:state.pitch,fov:state.hfov,dist:state.dist});renderKeys();}
 $('clearkf').onclick=()=>{state.keys=[];renderKeys()};
@@ -794,6 +818,7 @@ document.addEventListener('keydown',e=>{if(e.target.tagName==='TEXTAREA'||e.targ
   else if(e.key==='ArrowLeft'){vid.currentTime=Math.max(0,vid.currentTime-1)}
   else if(e.key==='ArrowRight'){vid.currentTime=Math.min(vid.duration,vid.currentTime+1)}
   else if(e.key==='k'||e.key==='K'){addKey()}
+  else if(e.key==='p'||e.key==='P'){snapshot()}
   else if(e.key==='b'||e.key==='B'){
     if(state.clip&&state.clip.fileOld) setVersion(!state.old);
     else if(RIG&&RIG.seam&&RIG.seam.flow){ state.noMorph=!state.noMorph; gl.useProgram(prog); gl.uniform1i(U.flowOn,state.noMorph?0:1);

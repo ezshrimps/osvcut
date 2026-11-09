@@ -252,12 +252,17 @@ class Handler(RangeHandler):
                 with libmod._thumb_lock:
                     data = look.view_jpeg(c, float(q.get("t", 0)), float(q.get("yaw", 0)), float(q.get("pitch", 0)),
                                           float(q.get("fov", 90)), float(q.get("dist", 0)),
-                                          int(q.get("w", 960)), int(q.get("h", 540))) if m.group(2) == "view" else                         look.sheet_jpeg(c, int(q.get("n", 6)))
+                                          min(7680, int(q.get("w", 960))), min(7680, int(q.get("h", 540))),
+                                          grade_=json.loads(q["grade"]) if q.get("grade") else None,
+                                          nadir=float(q.get("nadir", 0)), q=int(q.get("q", 88))) \
+                        if m.group(2) == "view" else look.sheet_jpeg(c, int(q.get("n", 6)))
             except Exception:
                 return self._json({"error": traceback.format_exc()[-600:]}, 500)
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")
             self.send_header("Content-Length", str(len(data)))
+            if q.get("dl"):      # still export from the studio: download with a readable file name
+                self.send_header("Content-Disposition", 'attachment; filename="%s"' % re.sub(r"[^\w.-]", "_", q["dl"]))
             self.end_headers()
             self.wfile.write(data)
             return
