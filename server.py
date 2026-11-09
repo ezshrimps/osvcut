@@ -261,11 +261,16 @@ class Handler(RangeHandler):
             self.end_headers()
             self.wfile.write(data)
             return
-        m = re.match(r"^/api/clip/([0-9a-f]{12})/(motion|transcript)$", p)
+        m = re.match(r"^/api/clip/([0-9a-f]{12})/(motion|transcript|wave)$", p)
         if m:
             c = LIB.get(m.group(1))
             if not c:
                 return self._json({"error": "unknown clip"}, 404)
+            if m.group(2) == "wave":
+                try:
+                    return self._json(analysis.waveform(c))
+                except Exception as e:  # noqa: BLE001
+                    return self._json({"error": str(e)}, 500)
             if m.group(2) == "motion":
                 try:
                     return self._json(analysis.motion(c))

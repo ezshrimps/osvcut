@@ -65,6 +65,30 @@ def motion(clip, rate=10.0):
     return res
 
 
+def waveform_path(cid):
+    return os.path.join(ADIR, f"{cid}_wave.json")
+
+
+def waveform(clip, rate=10.0):
+    """Audio level for the timeline: peak |amplitude| per 1/rate s (0..1, 8 kHz mono), cached."""
+    out = waveform_path(clip["id"])
+    if os.path.exists(out):
+        return json.load(open(out, encoding="utf8"))
+    sr = 8000
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", clip["path"], "-map", "0:a:0", "-ac", "1", "-ar", str(sr),
+                          "-f", "s16le", "-"], capture_output=True).stdout
+    if not raw:
+        res = dict(rate=rate, peak=[])
+    else:
+        a = np.abs(np.frombuffer(raw, np.int16).astype(np.float32)) / 32768.0
+        k = int(sr / rate)
+        n = len(a) // k
+        pk = a[:n * k].reshape(n, k).max(1) if n else np.zeros(0)
+        res = dict(rate=rate, peak=np.round(np.sqrt(pk), 3).tolist())     # sqrt: quiet speech stays visible
+    json.dump(res, open(out, "w", encoding="utf8"))
+    return res
+
+
 def transcribe(src, out, model="small"):
     from faster_whisper import WhisperModel
     wav = out + ".wav"
