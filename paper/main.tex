@@ -1,0 +1,177 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{caption}
+\hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
+
+\newcommand{\figplaceholder}[2]{\fbox{\parbox[c][#2][c]{0.95\linewidth}{\centering\small\color{gray} #1}}}
+
+\title{osvcut: Open, Scriptable Processing of Consumer Dual-Fisheye 360\textdegree{} Video\\with Flow-Aligned Minimum-Disagreement Seams}
+\author{Author(s) to be confirmed}
+\date{Draft --- \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Consumer 360\textdegree{} cameras record two fisheye streams that must be stitched, levelled and reframed before footage can be edited, and the vendor tools that do this are graphical and closed.
+We present \emph{osvcut}, an open pipeline that turns DJI Osmo~360 \texttt{.OSV} recordings into ordinary, scriptable video: a schema-free decoder for the per-frame metadata, horizon levelling from the embedded IMU with an empirically recovered axis map, a GPU renderer driven by a JSON edit specification, and a browser studio for people and AI agents.
+On an 8.1-hour personal corpus (239 clips) we analyse why calibrated dual-fisheye stitches still show seams: near-field parallax, inter-lens exposure differences and a body-occluded sector where the two lenses barely overlap; we rule out vignetting, rolling-shutter mismatch and a gravity-aligned ground-plane parallax model.
+We then propose a seam that aligns both lenses half-way with dense optical flow and places a narrow morph transition on a minimum-disagreement closed path through the overlap.
+To compare seam methods fairly we introduce a method-agnostic \emph{contribution disagreement} metric and evaluate on 100 frames from 20 clips: the proposed seam reduces disagreement by 38\% relative to the feathered stitch and by 11\% relative to a graph-style minimum-difference cut (79/100 paired wins, $p<10^{-12}$), and by 9\% on the parallax-heavy subset, without adding temporal flicker relative to a no-seam reference on a test clip.
+Code is released under Apache-2.0.
+\end{abstract}
+
+% ---------------------------------------------------------------------------
+\section{Introduction}
+
+Pocket 360\textdegree{} cameras have made spherical video a casual medium, but their footage is not editable as recorded.
+A DJI Osmo~360 clip stores two 10-bit HEVC fisheye streams, one per lens, plus calibration and inertial metadata in a proprietary protobuf track.
+To obtain a normal video one must stitch the fisheyes into a sphere, compensate the camera's attitude and then aim a virtual camera (\emph{reframing}).
+Vendor software does this interactively; existing open alternatives integrate into commercial editors~\cite{openosv}.
+Neither exposes the footage to scripts, which is what automated or AI-assisted editing requires: an agent needs to read what is in a clip, decide where to look and when to cut, and render the result reproducibly.
+
+This paper describes an open pipeline built for that purpose and the seam research it required.
+Our contributions are:
+\begin{enumerate}
+\item \textbf{Open access to the format.} A schema-free decoder for the \texttt{djmd} metadata (lens calibration, per-frame attitude) that reads a whole clip by stream copy in seconds, and an empirically recovered map from IMU to lens axes that enables horizon levelling from metadata alone (\S\ref{sec:format}).
+\item \textbf{An analysis of seam failures} in calibrated dual-fisheye stitching on a real corpus, including three negative results (vignetting, rolling shutter, ground-plane parallax) (\S\ref{sec:why}).
+\item \textbf{A seam method} combining lens-validity masks, a per-azimuth exposure field and flow-aligned minimum-disagreement transitions (\S\ref{sec:seam}).
+\item \textbf{An evaluation protocol} with a method-agnostic disagreement metric, a parallax-heavy subset and a no-seam reference for temporal stability, plus a blind pairwise study tool (\S\ref{sec:eval}).
+\item \textbf{A scriptable editing system}: a JSON render specification, AI-readable contact sheets, IMU motion and speech timelines, subject following and multi-clip sequences, exposed through an HTTP API and a browser studio (\S\ref{sec:system}).
+\end{enumerate}
+
+% ---------------------------------------------------------------------------
+\section{Related work}
+
+\paragraph{Dual-fisheye stitching.} Ho and Budagavi~\cite{ho2017dualfisheye} stitch dual-fisheye images by unwarping them, compensating light fall-off and refining the alignment of the overlap region. Lens models for wide fields of view follow Kannala and Brandt~\cite{kannala2006generic}, which DJI's calibration also uses.
+\paragraph{Seams and blending.} Optimal seams through overlaps are classically found with dynamic programming or graph cuts~\cite{kwatra2003graphcut,agarwala2004photomontage}, and blended with multi-band splines~\cite{burt1983multiresolution}. Parallax-tolerant methods warp images locally~\cite{zaragoza2013apap,zhang2014parallax}.
+\paragraph{Flow-based panoramic video.} Camera-array systems interpolate between views with optical flow to hide parallax~\cite{anderson2016jump,perazzi2015panoramic}. Our setting differs: two back-to-back lenses with a very small baseline, a fixed overlap ring a few degrees wide that collapses to about one degree on the body-occluded side, and per-frame IMU data.
+\paragraph{Gyro-based stabilisation.} Gyroscope data has long been used for video stabilisation and rolling-shutter correction~\cite{karpenko2011gyro}; we use the camera's fused attitude for levelling and test whether rolling shutter affects the seam.
+
+% ---------------------------------------------------------------------------
+\section{The OSV format and its metadata}\label{sec:format}
+
+An \texttt{.OSV} file is an ISO base media file. ffmpeg demuxes two HEVC Main10 video tracks (\emph{slave}, optical axis $-Y$; \emph{master}, $+Y$), AAC audio, two \texttt{djmd} metadata tracks and two debug tracks.
+In our corpus, 226 clips use 4K mode (two $1920^2$ streams at 100\,fps), 12 use 8K mode (two $3840^2$ streams at 29.97\,fps, no audio).
+
+\paragraph{Calibration.} Sample~0 of the primary \texttt{djmd} track carries 24 calibration slots; each holds $f_x,f_y,c_x,c_y$, five radial coefficients $k_1..k_5$ of the Kannala--Brandt model in a $3840^2$ calibration space, an extrinsic quaternion and a 14-point polygon outlining the camera body seen at the bottom of each image. A ray at angle $\theta$ from the optical axis and azimuth $\phi$ projects to
+\begin{equation}
+r(\theta)=\theta\,(1+k_1\theta^2+k_2\theta^4+k_3\theta^6+k_4\theta^8+k_5\theta^{10}),\quad
+(u,v)=\tfrac{W}{2}+s\big(f_x r\cos\phi + c_x-1920,\; f_y r\sin\phi + c_y-1920\big),
+\end{equation}
+with stream scale $s=f_{\mathrm{digital}}/f_x$ (0.5065 in 4K mode).
+
+\paragraph{Fast metadata access.} Dumping packets with ffprobe is slow for long clips. Because every sample is a \texttt{ProductMeta} message whose later samples contain only field~3 (\texttt{FrameMeta}), the stream-copied track parsed as \emph{one} protobuf message is a flat list in which each frame contributes exactly one field~3. Reading attitudes for a 19-minute clip (115\,443 frames) takes 22\,s instead of minutes.
+
+\paragraph{IMU-to-lens axes.} Each frame carries a fused attitude quaternion $q$ and an accelerometer vector. $R(q)^\top\hat z=(0.639,0.321,0.699)$ matched the normalised negative acceleration $(0.639,0.367,0.676)$, so $R(q)$ maps IMU to world. Rendering a levelled panorama for all 24 signed axis permutations of the up vector left exactly one with vertical structures: $\mathbf{b}=(-\iota_y,-\iota_x,\iota_z)$ for IMU coordinates $\iota$. Levelling then rotates each frame so that world up is the panorama's up while the heading follows a 1-s moving average of the camera's forward direction.
+
+% ---------------------------------------------------------------------------
+\section{Why calibrated stitches still show seams}\label{sec:why}
+
+We unwrap both lenses along the seam band (latitude $\beta\in[-8^\circ,8^\circ]$ around the plane between the lenses, $0.1^\circ$/px) and compare them.
+
+\begin{itemize}
+\item \textbf{Calibration is correct at infinity.} Distant ridges and clouds coincide.
+\item \textbf{Parallax.} Misalignment has a median of $0.77$--$0.85^\circ$ and reaches $2.7^\circ$ on objects within one metre (the hand on the selfie stick, people). The calibration encodes rotation only.
+\item \textbf{Exposure.} The slave/master luminance ratio varies from $0.53$ to $1.40$ around the ring (strong backlight).
+\item \textbf{Occlusion.} The body polygon marks where the camera itself is visible. Both lenses' occluded sectors face the handle, so the usable overlap shrinks from about $10^\circ$ to about $1^\circ$ there, and the occlusion edge is a $1$--$2^\circ$ dark gradient that a naive blend mixes in.
+\end{itemize}
+
+\paragraph{Ruled out.} (i) \emph{Vignetting}: the median radial luminance profile is flat ($\pm4\%$) to $96^\circ$. (ii) \emph{Rolling shutter}: over 40 frames with angular speeds of $5$--$533^\circ$/s, seam flow does not grow with speed (Pearson $r=0.09$). (iii) \emph{A gravity-aligned ground plane}: fitting $\Delta\beta = k\sin(-\mathrm{el}) + c$ to confident seam flow below the horizon gives $R^2\le0.07$, with $k$ changing sign between clips. (iv) A large share of the remaining lens-to-lens difference on texture is not geometric: even after raw-flow alignment the mean absolute difference on textured pixels falls only from $38.4$ to $34.1$ grey levels (from $36.0$ to $32.0$ with anti-aliased sampling), reflecting edge-of-field blur, chromatic aberration and noise.
+
+The last point motivates our design: the transition should run where the two lenses \emph{agree}, not through the geometric centre of the overlap.
+
+% ---------------------------------------------------------------------------
+\section{Seam method}\label{sec:seam}
+
+All seam computations live in the camera body frame, so one seam serves every output projection.
+
+\paragraph{Validity masks.} For each lens we rasterise the image circle at $\theta=96.5^\circ$, intersect it with the coded frame and with the inside of the body-occlusion arc, erode by $1^\circ$ and feather. Rays outside the usable area are clamped to its edge, so a sector seen by neither lens is filled from the nearer lens's edge instead of dark pixels.
+
+\paragraph{Exposure field.} On the overlap we compute, in linear light, the slave/master ratio in $5^\circ$ azimuth bins, fill empty bins circularly, smooth it, and filter it over time. Its circular mean is applied to the whole hemisphere and the azimuthal residual is faded out within $45^\circ$ of the seam.
+
+\paragraph{Flow alignment.} On a seam strip ($\pm4.5^\circ$, $0.2^\circ$/px) we estimate dense flow $F$ with $A(p)\approx B(p+F)$ using Farneb\"ack's method~\cite{farneback2003}, keep it where forward--backward consistency is high, fill elsewhere by normalised convolution and clamp it to $4^\circ$. Dense inverse search~\cite{kroeger2016dis} produced a systematic $+2$--$3.4^\circ$ bias on these 23--46-row strips and was rejected.
+
+\paragraph{Minimum-disagreement path.} We align both strips half-way, $A_{1/2}(p)=A(p-\tfrac12F)$ and $B_{1/2}(p)=B(p+\tfrac12F)$, and find a closed path $\beta^*(\alpha)$ minimising
+\begin{equation}
+C(\alpha,\beta)=|A_{1/2}-B_{1/2}| + \tfrac14|\nabla A_{1/2}-\nabla B_{1/2}| + 3\,[\text{not both valid}] + 2\,[\text{room}<0.6^\circ] + 0.02\,|\beta-\bar\beta(\alpha)| + \lambda_t|\beta-\beta^*_{t-1}(\alpha)|
+\end{equation}
+by dynamic programming with slope $\le1$ row per column, starting and ending at the cheapest node so that the path closes around the ring.
+
+\paragraph{Morph transition.} For an output ray with seam coordinates $(\alpha,\beta)$, $t=\mathrm{smoothstep}\big((\beta-\beta^*(\alpha))/2w+\tfrac12\big)$ with half-width $w=\min(1.5^\circ,\text{room in the overlap})$. The slave lens is sampled at $(\alpha,\beta)-tF$, the master at $(\alpha,\beta)+(1-t)F$, and the two are blended with weights $1-t$ and $t$ multiplied by the validity masks. The flow is attenuated where the transition must be narrow.
+
+% ---------------------------------------------------------------------------
+\section{Evaluation}\label{sec:eval}
+
+\paragraph{Data.} 20 clips drawn with a fixed seed from the 239 clips longer than 3\,s; 5 evenly spaced frames each ($n=100$). The corpus contains people's faces and is not redistributable; code and metrics are released.
+
+\paragraph{Metrics.} All metrics are computed on the seam strip ($\pm5^\circ$, $0.1^\circ$/px) where both lenses are valid, against single-lens renders of the same directions.
+\begin{itemize}
+\item \textbf{Contribution disagreement} (CD): $\sum 4w_Aw_B\,|Y_A-Y_B| \,/\, \sum 4w_Aw_B$ over the two (warped, exposure-compensated) contributions, i.e.\ how much the sources disagree wherever they are mixed. It applies equally to crossfades, cut lines and morph ramps.
+\item \textbf{Edge deviation}: $|\log(E_\mathrm{out}/E_\mathrm{ref})|$ of across-seam gradient energy within $1.5^\circ$; blur lowers it, a hard visible cut raises it.
+\item \textbf{Fidelity}: mean of $\max(\mathrm{SSIM}(\mathrm{out},A),\mathrm{SSIM}(\mathrm{out},B))$~\cite{wang2004ssim}. It favours methods that copy source pixels and is reported for completeness.
+\item \textbf{Exposure step} in excess of the natural scene gradient.
+\item \textbf{Hard subset}: azimuths where the median lens-to-lens flow exceeds $0.4^\circ$ (dilated by $\pm2^\circ$).
+\end{itemize}
+
+\begin{table}[t]
+\centering\small
+\caption{Seam benchmark, $n=100$ frames from 20 clips; means with 95\% bootstrap intervals for CD. Runtime is update+render of one $3840\times1920$ frame on an RTX 4070 Ti.}
+\label{tab:bench}
+\begin{tabular}{lcccccr}
+\toprule
+Method & CD $\downarrow$ & CD hard $\downarrow$ & Edge hard $\downarrow$ & Fidelity hard $\uparrow$ & Step $\downarrow$ & ms \\
+\midrule
+Feathered ($12^\circ$ crossfade) & 0.101 [.093,.109] & 0.133 & 0.188 & 0.853 & 0.030 & 23 \\
+Min-difference cut (DP)          & 0.071 [.066,.075] & 0.092 & \textbf{0.052} & \textbf{0.967} & 0.023 & 146 \\
+Flow, ramp centred in overlap    & 0.085 [.079,.091] & 0.119 & 0.076 & 0.870 & 0.028 & 169 \\
+Flow + DP path, $\pm3^\circ$     & 0.071 [.066,.076] & 0.097 & 0.086 & 0.884 & \textbf{0.023} & 180 \\
+\textbf{Flow + DP path, $\pm1.5^\circ$ (ours)} & \textbf{0.063} [.059,.067] & \textbf{0.084} & 0.065 & 0.929 & 0.025 & 180 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Results.} Table~\ref{tab:bench}. Against the minimum-difference cut, our seam has lower CD on 79/100 frames (Wilcoxon $p=1.6\times10^{-13}$) and lower CD on the hard subset on 82/100 ($p=1.7\times10^{-10}$); the cut keeps slightly crisper edges on the hard subset (edge deviation $+0.014$, $p=0.022$) and, by construction, higher fidelity. Against the feathered stitch our seam is better on every metric except the exposure step (n.s., $p=0.25$). Centring a flow morph in the overlap is clearly worse than placing it on the minimum-disagreement path, and a narrow transition beats a wide one.
+
+\paragraph{Temporal stability.} On one test clip (300 frames, crowd within one metre) we measure the mean absolute frame difference inside the seam band relative to a nearby band on the same side. A single-lens render with no seam gives the reference ratio 1.510; the feathered stitch gives 1.155 --- lower than the reference because ghosting low-passes the seam band, not because it is more stable. The minimum-difference cut gives 1.507 and our seam 1.361: neither adds flicker.
+
+\paragraph{Perceptual study.} The studio includes a blind pairwise test: a random clip, time and parallax-heavy seam location, rendered as an upright $55^\circ$ close-up by two hidden methods in random order; raters answer left/same/right and scores are fitted with a Bradley--Terry model~\cite{bradley1952rank}. \textcolor{red}{[Results pending: data collection with human raters.]}
+
+\begin{figure}[t]
+\centering
+\figplaceholder{Qualitative comparison on near-field seams (feathered / min-difference cut / ours). Requires consent for footage showing people, or crops without faces.}{4cm}
+\caption{Qualitative comparison (to be added).}
+\end{figure}
+
+% ---------------------------------------------------------------------------
+\section{A scriptable editing system}\label{sec:system}
+
+\paragraph{Render specification.} A JSON document names the source, in/out times, output projection and size, stabilisation and seam modes, and camera keyframes (yaw, pitch, field of view, and an eye-offset distortion that spans rectilinear to stereographic ``little planet'' views); keyframes interpolate with smoothstep or linearly. The renderer decodes both streams with ffmpeg, stitches and reframes on the GPU and encodes with NVENC.
+
+\paragraph{AI-readable views.} For an agent to decide where to look, each clip can be summarised as levelled panorama contact sheets with yaw ticks, a speech transcript~\cite{radford2023whisper} and an IMU motion curve (angular speed, high-frequency shake, tilt). In a case study, a language model read a 49-s contact sheet and transcript, identified the location and the subjects' bearings, and wrote a keyframe specification; coarse sampling caused the subject to leave the frame in one segment, which motivated subject following.
+
+\paragraph{Subject following.} A user (or agent) draws a box on the 360\textdegree{} view; we render a rectilinear view around the subject each frame with the same levelling as the export, track it with an online multiple-instance tracker~\cite{babenko2009mil}, re-aim the view when the subject leaves the central region, and emit smoothed linear keyframes. On a 5.5-s walking sequence with partial occlusion the subject stayed boxed throughout, at 0.65$\times$ real time.
+
+\paragraph{Studio.} A local web application indexes a folder of clips (239 clips scanned in under 20\,s), shows stitched and levelled panorama thumbnails, generates previews through a GPU job queue, plays them in a WebGL viewer sharing the renderer's projection maths, overlays motion, speech, keyframes and in/out points on the timeline, and assembles multi-clip sequences that are rendered at a common size and frame rate and concatenated losslessly.
+
+% ---------------------------------------------------------------------------
+\section{Limitations}
+
+Metrics are proxies: there is no ground truth for a view from the centre of the rig. The perceptual study is pending. The body-occluded sector leaves about one degree of overlap; near objects there remain stretched or cut. Evaluation uses one camera model and one owner's footage. Tracking uses a weight-free tracker and has not been benchmarked against annotations. Runtime ($\approx$0.18\,s per 4K equirect frame) is below real time.
+
+\section{Conclusion}
+
+Consumer dual-fisheye footage can be made as scriptable as ordinary video with open tools. On real footage, seams are dominated by near-field parallax, exposure mismatch and the body-occluded sector; aligning the lenses with optical flow and transitioning along a minimum-disagreement path reduces lens-to-lens disagreement significantly without adding flicker.
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}
