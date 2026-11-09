@@ -382,6 +382,12 @@ Re-runs with the final settings: 8K CD 30/30 vs the cut, hard 29/30 (p = 8e-8), 
 **R.** Five frames carry 42 % of the total gap; one clip (casino) appears four times in the top eight. Worst frame: a red casino carpet just below the camera — dense, repetitive texture where the flow is ambiguous; the morph softens the texture slightly, the cut shows a faint horizontal break; neither is clearly worse. Second: a face at arm's length — the cut breaks a spectacle rim at the seam, the morph keeps it continuous, yet the metric scores the morph 0.296 vs 0.141.
 **C.** In the frames that dominate the gap the morph is not visibly worse and is sometimes better; edge deviation penalises "different from the single-lens image" at near-field parallax, not visible defects. This is the limit of reference-based metrics here and what the blind study (E14) is for. Noted in the paper's limitations.
 
+## E48 — Combined flow confidence (no change)
+
+**M.** With the final defaults (±0.75°, no centre prior, no edge margin): photometric (`photo`), forward–backward (`fb`) and their product (`both`, aimed at repetitive texture matching the wrong period), 10 clips × 4 frames.
+**R.** CD 0.0290 / 0.0291 / 0.0290; CD-hard 0.0418 / 0.0420 / 0.0418; edge-hard 0.0433 / 0.0425 / 0.0431; edge 0.0281 / 0.0285 / 0.0284; step 0.0095 / 0.0099 / 0.0096 — all within noise.
+**C.** The confidence definition is no longer a limiting factor. `photo` kept (one flow instead of two). `conf="both"` remains available.
+
 ---
 
 ## Open questions / next experiments

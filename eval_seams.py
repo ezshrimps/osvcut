@@ -47,6 +47,8 @@ def make_engine(name, cal, lenses):
         opts["center"] = "dp"
     elif name == "flow_dp_r15":
         opts.update(center="dp", ramp=1.5)
+    elif name.startswith("conf_"):                 # confidence variants with the final defaults (E48)
+        opts.update(center="dp", conf=name[5:])
     elif name.startswith("room_"):                 # margin sweep, e.g. room_030 = 0.30 deg (E45)
         opts.update(center="dp", conf="photo", room_min=int(name[-3:]) / 100)
     elif name.startswith("pc_"):                   # path cost sweep, e.g. pc_025_002 = grad_w 0.25, centre_w 0.02 (E43)

@@ -399,6 +399,17 @@ class FlowStitch(SmartStitch):
             res = cv2.GaussianBlur(np.abs(gA.astype(np.float32) - Bw), (0, 0), 1.5)
             tex = cv2.GaussianBlur(np.abs(cv2.Laplacian(gA.astype(np.float32), cv2.CV_32F)), (0, 0), 1.5)
             conf = both * np.exp(-(res / 30.0) ** 2) * np.clip(tex / 1.0, 0, 1)
+        elif self.conf_mode == "both":
+            # E48: photometric residual AND forward-backward consistency (repetitive texture can match the wrong
+            # period with a small residual; the backward flow then disagrees)
+            Bw = cv2.remap(gB.astype(np.float32), (xs + F_[..., 0]) % W, ys + F_[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            res = cv2.GaussianBlur(np.abs(gA.astype(np.float32) - Bw), (0, 0), 1.5)
+            tex = cv2.GaussianBlur(np.abs(cv2.Laplacian(gA.astype(np.float32), cv2.CV_32F)), (0, 0), 1.5)
+            Fb = fb(wrap(gB), wrap(gA))[:, pad:-pad]
+            bx = cv2.remap(Fb[..., 0], (xs + F_[..., 0]) % W, ys + F_[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            by = cv2.remap(Fb[..., 1], (xs + F_[..., 0]) % W, ys + F_[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            fb_err = np.hypot(F_[..., 0] + bx, F_[..., 1] + by)
+            conf = both * np.exp(-(res / 30.0) ** 2) * np.clip(tex / 1.0, 0, 1) * np.exp(-(fb_err / 1.5) ** 2)
         else:
             Fb = fb(wrap(gB), wrap(gA))[:, pad:-pad]
             bx = cv2.remap(Fb[..., 0], (xs + F_[..., 0]) % W, ys + F_[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
