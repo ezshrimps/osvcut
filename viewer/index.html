@@ -385,6 +385,7 @@ body.bt .btview .btpair img{cursor:default}
       <div class="row"><label>拼缝</label><select id="seamSel"><option value="flow">光流对齐（推荐）</option><option value="smart">最优切缝</option><option value="legacy">旧版羽化</option></select></div>
       <div class="row"><label>画质</label><select id="cqSel"><option value="18">高（大文件）</option><option value="20" selected>标准</option><option value="24">小文件</option></select>
         <select id="fpsSel" style="flex:.6"><option value="25">25fps</option><option value="30">30fps</option><option value="50" selected>50fps</option></select></div>
+      <div class="row"><label>字幕</label><select id="capSel"><option value="off" selected>不加</option><option value="burn">烧进画面（来自语音转写）</option><option value="soft">软字幕轨道 + .srt</option></select></div>
       <div class="row"><label>脚下补丁</label><select id="nadirSel"><option value="0" selected>关</option><option value="10">小（10°）</option><option value="15">中（15°）</option><option value="20">大（20°）</option></select></div>
       <div class="row"><label>速度</label><select id="speedSel"><option value="0.25">0.25× 慢动作（100fps 素材无损）</option><option value="0.5">0.5× 慢动作</option><option value="1" selected>1× 正常</option><option value="2">2× 快进</option><option value="4">4× 快进</option></select></div>
       <div class="exportrow"><input id="exportTitle" placeholder="成片标题（可选）"><button class="btn primary" id="exportGo">导出成片</button><button class="btn" id="seqAdd" title="把这一段（入出点 + 关键帧）加到剪辑台">＋ 剪辑台</button></div>
@@ -632,6 +633,12 @@ function renderKeys(){
   const dur=vid.duration||1;$('kfmarks').innerHTML=ks.map(k=>`<i style="left:${k.t/dur*100}%"></i>`).join('');
   writeSpec();
 }
+function captionsFor(c,tin,tout){
+  const mode=$('capSel')?.value||'off'; const segs=state.tx?.segments||[];
+  if(mode==='off'||!segs.length) return {};
+  const cap=segs.filter(s=>s.end>tin&&s.start<tout).map(s=>({start:r2(c.in+s.start),end:r2(c.in+s.end),text:s.text}));
+  return cap.length?{captions:cap,captions_mode:mode}:{};
+}
 function writeSpec(){
   const c=state.clip; if(!c) return;
   if(typeof scheduleSave==='function') scheduleSave();
@@ -641,7 +648,7 @@ function writeSpec(){
   let tin=ks.length?Math.max(0,ks[0].t):0, tout=ks.length?Math.min(vid.duration||ks.at(-1).t+1,ks.at(-1).t+1):(vid.duration||0);
   if(state.inP!=null) tin=state.inP; if(state.outP!=null) tout=state.outP;
   const is360=$('projSel')?.value==='360';
-  const spec={src:c.src,in:r2(c.in+tin),out:r2(c.in+tout),proj:is360?'equirect':'flat',size:is360?[3840,1920]:size,...(is360?{spherical:true}:{}),fps:+($('fpsSel')?.value||50),seam:$('seamSel')?.value||'flow',cq:+($('cqSel')?.value||20),...(+($('nadirSel')?.value||0)>0?{nadir_patch:+$('nadirSel').value}:{}),...(Object.keys(gradeVals()).length?{grade:gradeVals()}:{}),...(+($('speedSel')?.value||1)!==1?{speed:+$('speedSel').value}:{}),
+  const spec={src:c.src,in:r2(c.in+tin),out:r2(c.in+tout),proj:is360?'equirect':'flat',size:is360?[3840,1920]:size,...(is360?{spherical:true}:{}),fps:+($('fpsSel')?.value||50),seam:$('seamSel')?.value||'flow',cq:+($('cqSel')?.value||20),...(+($('nadirSel')?.value||0)>0?{nadir_patch:+$('nadirSel').value}:{}),...(Object.keys(gradeVals()).length?{grade:gradeVals()}:{}),...captionsFor(c,tin,tout),...(+($('speedSel')?.value||1)!==1?{speed:+$('speedSel').value}:{}),
     keys:ks.map(k=>Object.assign({t:r2(Math.max(0,k.t-tin)),yaw:r1(k.yaw),pitch:r1(k.pitch),fov:r1(k.fov)},k.dist>0.001?{dist:r2(k.dist)}:{},k.ease?{ease:k.ease}:{})),dst:`samples/${c.id}_cut.mp4`};
   $('spec').value=JSON.stringify(spec,null,1).replace(/\n\s+(?=[\d\-\]}])/g,' ').replace(/\{\n\s+/g,'{');
   $('specwarn').textContent=ks.some(k=>k.fov>150&&!(k.dist>0.3))?'提示：直线投影下 fov>150° 边缘拉伸严重，可调大「畸变」或用超广角/小行星预设。':'';
@@ -659,7 +666,7 @@ function syncControls(){
 $('fov').oninput=e=>{state.hfov=+e.target.value;syncControls()};
 $('dist').oninput=e=>{state.dist=+e.target.value;syncControls()};
 $('aspect').onchange=e=>{state.aspect=+e.target.value;layout();writeSpec()};
-['projSel','seamSel','cqSel','fpsSel','speedSel','nadirSel'].forEach(id=>$(id).onchange=()=>writeSpec());
+['projSel','seamSel','cqSel','fpsSel','speedSel','nadirSel','capSel'].forEach(id=>$(id).onchange=()=>writeSpec());
 $('speedSel').addEventListener('change',()=>{vid.playbackRate=+$('speedSel').value;$('rate').value=String(Math.min(1,+$('speedSel').value))});
 $('grid').onchange=e=>state.grid=e.target.checked;
 $('seamViz').onchange=e=>state.seamViz=e.target.checked;

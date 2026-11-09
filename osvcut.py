@@ -1,5 +1,5 @@
 """osvcut: OSV -> stitched / levelled / reframed video, GPU (torch).  Prototype."""
-import json, subprocess, sys, math, numpy as np, torch, torch.nn.functional as F
+import json, os, subprocess, sys, math, numpy as np, torch, torch.nn.functional as F
 from djmd import packets, tree, get, djmd_index
 from stitch import load_calib, qmat, lens_scale
 from seam import SmartStitch, FlowStitch
@@ -202,6 +202,40 @@ def grade(img,g):
     y=(0.2126*x[0]+0.7152*x[1]+0.0722*x[2])[None]
     return (y+(x-y)*(1+sat)).clamp(0,1)
 
+def _srt_time(x):
+    ms=int(round(max(0.0,x)*1000)); h,ms=divmod(ms,3600000); m,ms=divmod(ms,60000); s_,ms=divmod(ms,1000)
+    return f"{h:02d}:{m:02d}:{s_:02d},{ms:03d}"
+
+def add_captions(dst,captions,t0,t1,speed=1.0,mode="burn",size=(1920,1080)):
+    """captions: [{start, end, text}] in source seconds.  Writes <dst>.srt next to the video and either burns the
+    lines into the picture (libass, NVENC re-encode) or muxes them as a soft subtitle track."""
+    lines=[]
+    for c in captions:
+        a,b=max(float(c["start"]),t0),min(float(c["end"]),t1)
+        if b-a<0.15 or not str(c.get("text","")).strip(): continue
+        lines.append(((a-t0)/speed,(b-t0)/speed,str(c["text"]).strip()))
+    if not lines: return 0
+    srt=dst[:-4]+".srt"
+    with open(srt,"w",encoding="utf8") as fh:
+        for k,(a,b,txt) in enumerate(lines,1):
+            fh.write(f"{k}\n{_srt_time(a)} --> {_srt_time(b)}\n{txt}\n\n")
+    tmp=dst[:-4]+"_cap.mp4"
+    if mode=="soft":
+        cmd=["ffmpeg","-v","error","-y","-i",dst,"-i",srt,"-map","0","-map","1","-c","copy","-c:s","mov_text",
+             "-metadata:s:s:0","language=und",tmp]
+    else:
+        fs=max(16,int(min(size)*0.055))
+        # libass wants forward slashes and an escaped drive colon inside the filter argument
+        esc=os.path.abspath(srt).replace("\\","/").replace(":","\\:")
+        style=f"FontName=Microsoft YaHei,FontSize={fs},PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=1,Outline=2,Shadow=0,MarginV={int(fs*1.2)}"
+        cmd=["ffmpeg","-v","error","-y","-i",dst,"-vf",f"subtitles='{esc}':original_size={size[0]}x{size[1]}:force_style='{style}'",
+             "-c:v","h264_nvenc","-preset","p5","-cq","19","-c:a","copy","-movflags","+faststart",tmp]
+        if subprocess.run(cmd).returncode!=0:
+            cmd[cmd.index("h264_nvenc")]="libx264"; i=cmd.index("-preset"); cmd[i+1]="medium"; i=cmd.index("-cq"); cmd[i:i+2]=["-crf","19"]
+    subprocess.run(cmd,check=True)
+    os.replace(tmp,dst)
+    return len(lines)
+
 def render(spec):
     f=spec["src"]; t0,t1=spec["in"],spec["out"]; mode=spec.get("proj","flat")
     Wo,Ho=spec.get("size",[1920,1080]); fps=spec.get("fps",50)
@@ -283,6 +317,9 @@ def render(spec):
     if pending is not None: pending.result()
     if pool is not None: pool.shutdown()
     writer.close(); enc.wait(); reader.close()
+    if spec.get("captions"):
+        n=add_captions(spec["dst"],spec["captions"],t0,t1,speed,spec.get("captions_mode","burn"),(Wo,Ho))
+        print("captions:",n,"lines",flush=True)
     if spec.get("spherical") and mode=="equirect":
         import spherical; spherical.inject(spec["dst"])
     print(f"progress {total}/{total}",flush=True)
