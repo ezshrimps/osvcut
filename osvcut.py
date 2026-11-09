@@ -250,7 +250,15 @@ def render(spec):
     kfs=spec.get("keys",[{"t":0,"yaw":0,"pitch":0,"fov":100}])
     srcfps=float(eval(subprocess.run(["ffprobe","-v","error","-select_streams","v:0","-show_entries","stream=r_frame_rate","-of","csv=p=0",f],capture_output=True,text=True).stdout.strip().split("\n")[0]))
     speed=float(spec.get("speed",1.0))
-    if abs(speed-1)<1e-6:
+    # local slow motion: {"from": a, "to": b, "speed": s} in source seconds, normal speed elsewhere
+    sl=spec.get("slow")
+    if sl:
+        if abs(speed-1)>1e-6 or spec.get("freeze"): raise ValueError("slow cannot be combined with speed or freeze")
+        sl_a,sl_b,sl_s=max(t0,float(sl["from"])),min(t1,float(sl["to"])),float(sl.get("speed",0.25))
+        if not (sl_b>sl_a and 0.05<=sl_s<1): sl=None
+    if sl:
+        step=1; fps_out=float(fps)
+    elif abs(speed-1)<1e-6:
         step=max(1,round(srcfps/fps)); fps_out=srcfps/step
     else:                                   # slow motion / fast forward: pick source frames by output time
         step=1; fps_out=float(fps)
@@ -261,6 +269,14 @@ def render(spec):
     fz_at=float(fz["at"]) if fz else None; fz_n=int(round(float(fz.get("dur",2.0))*(srcfps/step))) if fz else 0
     fz_turn=float(fz.get("turn",360.0)) if fz else 0.0
     def timed_frames():
+        if sl:                                # variable rate: advance source time by 1/fps_out x local speed
+            tout=t0
+            for j,raw in enumerate(reader):
+                tsrc=t0+j/srcfps
+                while tout<=tsrc+0.5/srcfps and tout<t1:
+                    yield tsrc,raw,None
+                    tout+=(sl_s if sl_a<=tout<sl_b else 1.0)/fps_out
+            return
         if abs(speed-1)<1e-6:
             done=False
             for j,raw in enumerate(reader):
@@ -282,6 +298,14 @@ def render(spec):
         while sp>2.0: atempo.append(2.0); sp/=2.0
         atempo.append(sp)
     amap=["-map","1:a?"]
+    if sl and bool(subprocess.run(["ffprobe","-v","error","-select_streams","a","-show_entries","stream=index","-of","csv=p=0",f],capture_output=True,text=True).stdout.strip()):
+        af="aformat=sample_rates=48000:channel_layouts=stereo"; r1,r2=sl_a-t0,sl_b-t0
+        tempo=[]; x=sl_s
+        while x<0.5: tempo.append(0.5); x/=0.5
+        tempo.append(x)
+        amap=["-filter_complex",f"[1:a]{af},asplit=3[x][y][z];[x]atrim=0:{r1:.3f},asetpts=PTS-STARTPTS[a1];"
+              f"[y]atrim={r1:.3f}:{r2:.3f},asetpts=PTS-STARTPTS,"+",".join(f"atempo={v:.6f}" for v in tempo)+"[a2];"
+              f"[z]atrim={r2:.3f},asetpts=PTS-STARTPTS[a3];[a1][a2][a3]concat=n=3:v=0:a=1[aout]","-map","[aout]"]
     if fz:
         has_a=bool(subprocess.run(["ffprobe","-v","error","-select_streams","a","-show_entries","stream=index","-of","csv=p=0",f],capture_output=True,text=True).stdout.strip())
         if has_a:
@@ -295,7 +319,7 @@ def render(spec):
     seam_async=bool(spec.get("seam_async",True)) and smart
     pool=ThreadPoolExecutor(1) if seam_async else None; pending=None; eng_ready=True
     every=max(1,int(spec.get("seam_every",1))); i=0
-    total=max(1,int((t1-t0)/speed*fps_out))+fz_n; eq_base=None
+    total=max(1,int((t1-t0)/speed*fps_out))+fz_n+(int((sl_b-sl_a)*(1/sl_s-1)*fps_out) if sl else 0); eq_base=None
     for t,raw,fzp in timed_frames():
         i+=1
         im=yuv420_to_rgb(raw,W,2*W)
