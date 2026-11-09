@@ -22,6 +22,7 @@ DJI Studio (and plug-ins such as OpenOSV) are GUI-first. To let an AI edit 360 f
 | Stabilisation | Horizon levelling from the IMU (empirically derived IMU→body axis map) + smoothed heading |
 | Reframing | Virtual camera keyframes (yaw / pitch / fov, smoothstep easing) → 16:9 / 9:16 / 1:1 MP4 via NVENC |
 | Studio (`server.py` + `viewer/`) | Library of every OSV under a folder with stitched, levelled panorama thumbnails; one-click preview generation (3 quality presets) with progress; WebGL 360 viewer (perspective / wide / little-planet / crystal-ball), minimap with view footprint, horizon grid, A/B seam comparison |
+| Live preview | Opening any clip auto-builds a dual-fisheye proxy (GPU decode/scale, ~4× real time) plus a rig JSON (lens model, usable radii, exposure balance, 15 Hz levelling quaternions); the WebGL shader stitches and levels it in real time. Exports still use the full flow seam |
 | Timeline | IMU motion curve, shake markers, speech segments (faster-whisper transcript, clickable), keyframes, in/out points (`I` / `O`) |
 | Subject follow | Shift+drag a box around a person → GPU-rendered tracking views + OpenCV MIL tracker with automatic re-aiming → dense linear keyframes, previewed live and exportable |
 | Export | Keyframed yaw / pitch / fov / distortion (little planet etc.) to 16:9 / 9:16 / 1:1 MP4 through a job queue |
@@ -70,6 +71,10 @@ Example spec:
 | `library.py`, `server.py`, `serve.py` | Library index, thumbnails, job queue, HTTP API |
 | `analysis.py` | Motion curve + transcripts (cached) |
 | `track.py` | Subject follow → camera keyframes |
+| `proxy.py` | Dual-fisheye proxy + rig JSON for live browser stitching |
+| `sequence.py` | Multi-clip sequence render + lossless concat |
+| `blindtest.py` | Blind pairwise seam study |
+| `eval_seams.py`, `eval_temporal.py`, `analyze_bench.py` | Benchmarks |
 | `viewer/index.html` | Browser studio (single file, WebGL2) |
 | `bezel.py`, `seamdiag.py`, `compare_seam.py`, `tools_*.py` | Research / diagnostics |
 | `REPORT.md` | Research notes (Chinese) |

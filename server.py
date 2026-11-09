@@ -25,9 +25,10 @@ import blindtest                        # noqa: E402
 
 PREVIEWS = os.path.join(HERE, "cache", "previews")
 TRACKS = os.path.join(HERE, "cache", "tracks")
+PROXIES = os.path.join(HERE, "cache", "proxies")
 EXPORTS = os.path.join(HERE, "exports")
 SPECS = os.path.join(HERE, "cache", "jobspecs")
-for d in (PREVIEWS, EXPORTS, SPECS, TRACKS):
+for d in (PREVIEWS, EXPORTS, SPECS, TRACKS, PROXIES):
     os.makedirs(d, exist_ok=True)
 
 PREVIEW_PRESETS = {
@@ -55,6 +56,9 @@ def clip_public(c):
     out["previews"] = {p: rel_url(preview_file(c["id"], p)) for p in PREVIEW_PRESETS
                        if os.path.exists(preview_file(c["id"], p))}
     out["thumb"] = f"/api/thumb/{c['id']}.jpg"
+    px, rj = os.path.join(PROXIES, c["id"] + ".mp4"), os.path.join(PROXIES, c["id"] + ".json")
+    if os.path.exists(px) and os.path.exists(rj):
+        out["proxy"], out["rig"] = rel_url(px), rel_url(rj)
     out["src"] = c["path"].replace("\\", "/")
     return out
 
@@ -244,6 +248,26 @@ class Handler(RangeHandler):
                 spec = dict(src=c["path"], **{"in": 0, "out": round(c["duration"], 3)}, proj="equirect",
                             dst=preview_file(c["id"], preset), **pr)
                 job = new_job("preview", f"{c['event'] or ''} · {c['name']} · 预览({preset})", spec, c["id"])
+                return self._json({k: v for k, v in job.items() if not k.startswith("_")})
+            if kind == "proxy":
+                c = LIB.get(b.get("clip", ""))
+                if not c:
+                    return self._json({"error": "unknown clip"}, 404)
+                px, rj = os.path.join(PROXIES, c["id"] + ".mp4"), os.path.join(PROXIES, c["id"] + ".json")
+                for j in JOBS.values():
+                    if j["clip"] == c["id"] and j["kind"] == "proxy" and j["status"] in ("queued", "running"):
+                        return self._json({k: v for k, v in j.items() if not k.startswith("_")})
+                tmp = px[:-4] + ".part.mp4"
+                job = new_job("proxy", f"{c['name']} · 实时预览代理", None, c["id"],
+                              cmd=[sys.executable, "-u", "-c",
+                                   "import sys,os,subprocess;"
+                                   "r=subprocess.run([sys.executable,'-u','proxy.py',sys.argv[1],sys.argv[2],sys.argv[3]]).returncode;"
+                                   "os.replace(sys.argv[2],sys.argv[4]) if r==0 else None;sys.exit(r)",
+                                   c["path"], tmp, rj, px], output=px)
+                # jump the queue: proxies are short and unblock the viewer
+                with JOBQ.mutex:
+                    JOBQ.queue.remove(job["id"])
+                    JOBQ.queue.appendleft(job["id"])
                 return self._json({k: v for k, v in job.items() if not k.startswith("_")})
             if kind == "export":
                 spec = b.get("spec") or {}

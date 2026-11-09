@@ -349,6 +349,23 @@ in vec2 p; void main(){gl_Position=vec4(p,0,1);}`;
 const fs=`#version 300 es
 precision highp float;
 uniform sampler2D tex; uniform vec2 res; uniform float yaw,pitch,hfov,dist; uniform int grid;
+uniform int live; uniform mat3 Mb, R0, R1; uniform vec4 k0, k1; uniform float k05, k15;
+uniform vec2 f0, f1, c0, c1; uniform sampler2D rlimTex; uniform float lensPx, thetaCut; uniform vec3 g0, g1;
+vec4 lensSample(int i, vec3 db){
+  mat3 R = i==0 ? R0 : R1; vec4 k = i==0 ? k0 : k1; float k5 = i==0 ? k05 : k15;
+  vec2 f = i==0 ? f0 : f1; vec2 c = i==0 ? c0 : c1;
+  vec3 dl = R*db;
+  float th = atan(length(dl.xy), dl.z), ph = atan(dl.y, dl.x), t2 = th*th;
+  float r = th*(1.0+t2*(k.x+t2*(k.y+t2*(k.z+t2*(k.w+t2*k5)))));
+  float lim = texture(rlimTex, vec2(fract(ph/6.28318530718+1.0), (float(i)+0.5)*0.5)).r;
+  float rpx = f.x*r;
+  float valid = clamp((lim-rpx)/6.0, 0.0, 1.0) * step(th, thetaCut);
+  float rc = min(rpx, lim);
+  vec2 px = c + vec2(cos(ph), sin(ph)*f.y/f.x)*rc;
+  px = clamp(px, vec2(0.5), vec2(lensPx-0.5));
+  vec3 col = texture(tex, vec2((px.x+float(i)*lensPx)/(2.0*lensPx), px.y/lensPx)).rgb * (i==0 ? g0 : g1);
+  return vec4(col, valid);
+}
 out vec4 o; const float PI=3.14159265359;
 void main(){
   vec2 p=gl_FragCoord.xy-res*0.5;
@@ -365,7 +382,19 @@ void main(){
   float cy=cos(yaw),sy=sin(yaw);
   v=vec3(cy*v.x+sy*v.y,-sy*v.x+cy*v.y,v.z);
   float lon=atan(v.x,v.y), lat=asin(clamp(v.z,-1.0,1.0));
-  vec3 c=texture(tex,vec2(lon/(2.0*PI)+0.5,0.5-lat/PI)).rgb;
+  vec3 c;
+  if(live==1){
+    // the view ray v is in the levelled frame (x right, y forward, z up); Mb maps it into the camera body
+    vec3 db = normalize(Mb*v);
+    vec4 a = lensSample(0, db), b = lensSample(1, db);
+    float beta = degrees(asin(clamp(db.y,-1.0,1.0)));
+    float t = smoothstep(-1.5, 1.5, beta);
+    float wa = (1.0-t)*a.w + 1e-4*a.w + (db.y<0.0 ? 1e-6 : 0.0);
+    float wb = t*b.w + 1e-4*b.w + (db.y>=0.0 ? 1e-6 : 0.0);
+    c = (a.rgb*wa + b.rgb*wb)/(wa+wb);
+  } else {
+    c = texture(tex,vec2(lon/(2.0*PI)+0.5,0.5-lat/PI)).rgb;
+  }
   if(grid==1){
     float lo=lon*180.0/PI, la=lat*180.0/PI;
     float dlo=abs(mod(lo+7.5,15.0)-7.5), dla=abs(mod(la+7.5,15.0)-7.5);
@@ -384,7 +413,39 @@ function sh(t,s){const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShade
 const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-const U={};['res','yaw','pitch','hfov','dist','grid'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const U={};['res','yaw','pitch','hfov','dist','grid','live','Mb','R0','R1','k0','k1','k05','k15','f0','f1','c0','c1','rlimTex','lensPx','thetaCut','g0','g1','tex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+gl.uniform1i(U.tex,0); gl.uniform1i(U.rlimTex,1); gl.uniform1i(U.live,0);
+const rlimT=gl.createTexture();
+let RIG=null;
+function setRig(r){
+  RIG=r;
+  if(!r){gl.uniform1i(U.live,0);return}
+  const colMajor=m=>[m[0][0],m[1][0],m[2][0],m[0][1],m[1][1],m[2][1],m[0][2],m[1][2],m[2][2]];
+  r.lenses.forEach((L,i)=>{
+    gl.uniformMatrix3fv(U['R'+i],false,colMajor(L.R));
+    gl.uniform4f(U['k'+i],L.k[0],L.k[1],L.k[2],L.k[3]); gl.uniform1f(U['k'+i+'5'],L.k[4]);
+    gl.uniform2f(U['f'+i],L.f[0],L.f[1]); gl.uniform2f(U['c'+i],L.c[0],L.c[1]);
+  });
+  gl.uniform3fv(U.g0,r.gain_slave); gl.uniform3fv(U.g1,r.gain_master);
+  gl.uniform1f(U.lensPx,r.lens_px); gl.uniform1f(U.thetaCut,r.theta_cut_deg*Math.PI/180);
+  const n=r.lenses[0].rlim.length, data=new Float32Array(n*2);
+  r.lenses.forEach((L,i)=>data.set(L.rlim,i*n));
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,rlimT);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.R32F,n,2,0,gl.RED,gl.FLOAT,data);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.uniform1i(U.live,1);
+}
+function rigMatrix(t){ // levelling rotation (body <- levelled) at time t, column-major for GLSL
+  const q=RIG.level_q, n=q.length; if(!n) return [1,0,0,0,1,0,0,0,1];
+  const x=Math.max(0,Math.min(n-1,t*RIG.level_rate)), i=Math.floor(x), j=Math.min(n-1,i+1), a=x-i;
+  let p=q[i], r=q[j]; const dot=p[0]*r[0]+p[1]*r[1]+p[2]*r[2]+p[3]*r[3]; if(dot<0) r=r.map(v=>-v);
+  let w=p[0]*(1-a)+r[0]*a, X=p[1]*(1-a)+r[1]*a, Y=p[2]*(1-a)+r[2]*a, Z=p[3]*(1-a)+r[3]*a;
+  const L=Math.hypot(w,X,Y,Z); w/=L;X/=L;Y/=L;Z/=L;
+  const m=[[1-2*(Y*Y+Z*Z),2*(X*Y-w*Z),2*(X*Z+w*Y)],[2*(X*Y+w*Z),1-2*(X*X+Z*Z),2*(Y*Z-w*X)],[2*(X*Z-w*Y),2*(Y*Z+w*X),1-2*(X*X+Y*Y)]];
+  return [m[0][0],m[1][0],m[2][0],m[0][1],m[1][1],m[2][1],m[0][2],m[1][2],m[2][2]];
+}
 const tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);
 gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
 gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
@@ -494,7 +555,8 @@ const mini=$('mini'), mc=mini.getContext('2d');
 mini.onclick=e=>{const r=mini.getBoundingClientRect();state.yaw=((e.clientX-r.left)/r.width-0.5)*360;state.pitch=Math.max(-90,Math.min(90,(0.5-(e.clientY-r.top)/r.height)*180));};
 function drawMini(){
   const W=mini.width,H=mini.height;
-  if(stillImg&&stillImg.complete&&stillImg.naturalWidth) mc.drawImage(stillImg,0,0,W,H);
+  if(RIG&&miniImg&&miniImg.complete&&miniImg.naturalWidth) mc.drawImage(miniImg,0,0,W,H);
+  else if(stillImg&&stillImg.complete&&stillImg.naturalWidth) mc.drawImage(stillImg,0,0,W,H);
   else if(vid.readyState>=2) mc.drawImage(vid,0,0,W,H); else {mc.fillStyle='#000';mc.fillRect(0,0,W,H)}
   mc.fillStyle='rgba(0,0,0,.25)';mc.fillRect(0,0,W,H);
   const cw=canvas.width,ch=canvas.height,N=40;mc.fillStyle='#f2a93b';
@@ -538,6 +600,7 @@ function frame(){
   gl.viewport(0,0,canvas.width,canvas.height);
   gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.yaw,state.yaw*D2R);gl.uniform1f(U.pitch,state.pitch*D2R);
   gl.uniform1f(U.hfov,Math.min(state.hfov,maxFov(state.dist))*D2R);gl.uniform1f(U.dist,state.dist);gl.uniform1i(U.grid,state.grid?1:0);
+  if(RIG) gl.uniformMatrix3fv(U.Mb,false,rigMatrix(vid.currentTime||0));
   gl.drawArrays(gl.TRIANGLES,0,3);
   drawMini(); drawTimeline(); updateTxHighlight();
   const d=vid.duration||0;$('time').textContent=`${vid.currentTime.toFixed(2)} / ${d.toFixed(2)}`;
@@ -551,7 +614,7 @@ function frame(){
 }
 
 /* ---------- sources (video or still image) ---------- */
-let stillImg=null;
+let stillImg=null, miniImg=null;
 function useStill(url){
   stillImg=new Image(); stillImg.onload=()=>{frameDirty=true;$('loading').style.display='none'}; stillImg.src=url;
   vid.pause(); vid.removeAttribute('src'); vid.load();
@@ -573,7 +636,7 @@ $('abNew').onclick=()=>setVersion(false);
 $('abOld').onclick=()=>setVersion(true);
 function bestPreview(c){const p=c.previews||{};return p.high||p.standard||p.fast||null}
 function libToClip(c){
-  return {id:c.id,lib:true,title:`${c.event||''} · ${c.name}`,src:c.src,in:0,file:bestPreview(c),thumb:c.thumb,
+  return {id:c.id,lib:true,title:`${c.event||''} · ${c.name}`,src:c.src,in:0,file:bestPreview(c),thumb:c.thumb,proxy:c.proxy,rig:c.rig,
           note:`${c.lens_px>=3840?'8K':'4K'} 模式 · ${c.fps}fps · ${fmtDur(c.duration)}${c.audio?'':' · 无音频'}${c.shot?' · '+c.shot.replace('T',' '):''}`,raw:c};
 }
 async function loadClip(c){
@@ -585,11 +648,20 @@ async function loadClip(c){
   $('clipnote').textContent=c.note||'';$('loadai').style.display=c.aiSpec?'':'none';
   $('loading').style.display='flex';$('loading').textContent='加载中…';
   $('genbox').style.display='none';
+  setRig(null);
   if(c.file){
     vid.src=c.file;vid.load();vid.onloadedmetadata=()=>{renderKeys();vid.play().catch(()=>{})};
     vid.onerror=()=>{$('loading').textContent='视频还没渲染好（或文件不存在），稍后刷新';};
+  }else if(c.proxy&&c.rig){
+    // live stitching of the dual-fisheye proxy in the shader
+    let r; try{r=await (await fetch(c.rig)).json()}catch{r=null}
+    if(state.clip!==c) return;
+    if(r){ setRig(r); miniImg=new Image(); miniImg.src=c.thumb;
+      vid.src=c.proxy;vid.load();vid.onloadedmetadata=()=>{renderKeys();vid.play().catch(()=>{})};
+      $('clipnote').textContent=(c.note||'')+' · 实时拼接预览（导出时用完整光流拼缝）';
+    } else { useStill(c.thumb); showGen(c); }
   }else{
-    useStill(c.thumb); showGen(c);
+    useStill(c.thumb); showGen(c); autoProxy(c);
   }
   renderKeys();
   loadAnalysis(c);
@@ -602,6 +674,15 @@ function addRecent(c){
   box.prepend(b);
 }
 
+
+/* ---------- fast live preview: dual-fisheye proxy job ---------- */
+function proxyJobFor(cid){return JOBS.find(j=>j.clip===cid&&j.kind==='proxy'&&(j.status==='queued'||j.status==='running'))}
+async function autoProxy(c){
+  if(!c?.lib||proxyJobFor(c.id)) return;
+  const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'proxy',clip:c.id})});
+  const j=await r.json(); if(!j.error){JOBS.unshift(j); showGen(c); pollJobs()}
+}
+
 /* ---------- preview generation ---------- */
 let genQ='standard';
 document.querySelectorAll('#genOpts button').forEach(b=>b.onclick=()=>{genQ=b.dataset.q;document.querySelectorAll('#genOpts button').forEach(x=>x.classList.toggle('on',x===b));if(state.clip)showGen(state.clip)});
@@ -612,6 +693,15 @@ function estimate(c,q){ // rough seconds on this machine: frames * per-frame cos
 }
 function showGen(c){
   const box=$('genbox'); box.style.display='block';
+  const pj=proxyJobFor(c.id);
+  if(pj&&!jobFor(c.id)){
+    $('genOpts').style.display='none'; $('genGo').style.display='none'; $('genBar').style.display='block';
+    $('genTitle').textContent='正在准备实时预览…';
+    $('genSub').textContent='只转码不拼接，通常只要片长的 1/4 左右；完成后浏览器会实时拼接并自动播放。';
+    $('genBar').firstElementChild.style.width=(pj.progress*100).toFixed(1)+'%';
+    $('genEta').textContent=pj.status==='running'?`${(pj.progress*100).toFixed(0)}%`+(pj.eta?` · 约剩 ${fmtDur(pj.eta)}`:''):'排队中';
+    return;
+  }
   const j=jobFor(c.id);
   $('genOpts').style.display=j?'none':'flex'; $('genBar').style.display=j?'block':'none';
   $('genGo').style.display=j?'none':'';
@@ -685,11 +775,11 @@ async function pollJobs(){
   for(const j of JOBS){const p=prev.find(x=>x.id===j.id);
     if(p&&p.status!=='done'&&j.status==='done'){
       toast(`完成：${j.title}`);
-      if(j.kind==='preview'){await loadLibrary();if(state.clip?.id===j.clip&&!state.clip.file){const c=LIB.clips.find(x=>x.id===j.clip);if(c)loadClip(libToClip(c))}}
+      if(j.kind==='preview'||j.kind==='proxy'){await loadLibrary();if(state.clip?.id===j.clip&&!state.clip.file&&!(j.kind==='proxy'&&RIG)){const c=LIB.clips.find(x=>x.id===j.clip);if(c)loadClip(libToClip(c))}}
       else if(j.kind==='track') applyTrack(j);
       else loadExports();
     }}
-  if(state.clip?.lib&&!state.clip.file) showGen(state.clip);
+  if(state.clip?.lib&&!state.clip.file&&!RIG) showGen(state.clip);
   if(document.body.classList.contains('lib')&&active.length) renderLibrary();
   pollT=setTimeout(pollJobs,active.length?1500:6000);
 }
