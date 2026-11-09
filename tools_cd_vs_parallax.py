@@ -48,7 +48,14 @@ def main():
             Fl = cv2.calcOpticalFlowFarneback(a8, b8, None, 0.5, 3, 15, 4, 5, 1.1, 0)
             mag = np.hypot(Fl[..., 0], Fl[..., 1]) * RES
             parts = {}
-            for name, eng in (("cut", SmartStitch(cal, lenses)), ("flow", FlowStitch(cal, lenses, flow_ema=0, conf="photo"))):
+            import os
+            if os.environ.get("RAMPS"):         # compare two flow-seam ramp widths instead of cut vs flow (E42)
+                r1, r2 = [float(x) for x in os.environ["RAMPS"].split(",")]
+                pairs = (("cut", FlowStitch(cal, lenses, flow_ema=0, conf="photo", ramp=r1)),
+                         ("flow", FlowStitch(cal, lenses, flow_ema=0, conf="photo", ramp=r2)))
+            else:
+                pairs = (("cut", SmartStitch(cal, lenses)), ("flow", FlowStitch(cal, lenses, flow_ema=0, conf="photo")))
+            for name, eng in pairs:
                 eng.update(imgs)
                 _, pA, pB, wA, wB = eng.render(imgs, D, parts=True)
                 w = (4 * wA * wB).cpu().numpy()

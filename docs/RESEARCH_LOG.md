@@ -341,6 +341,13 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 **R.** Ratio flow/cut: 0.94 (≈0°, n = 1182), 0.86 (0.16°), 0.85 (0.25°), 0.79 (0.38°), 0.67 (0.57°, n = 338), 0.57 (0.89°, n = 22). The cut's CD rises from 0.014 to 0.077; the flow seam's levels off near 0.05.
 **C.** The morph's advantage is concentrated where parallax is large (near objects), exactly where seams are visible; at zero parallax the two methods agree. Figure in the paper (`paper/data/cd_vs_parallax.dat`).
 
+## E42 — The transition was too wide for the corrected geometry (default ±1.5° → ±0.75°)
+
+**Q.** E41 showed the flow seam's CD levelling off near 0.05 at large parallax. Would a wider ramp help there (adaptive width), or a narrower one everywhere?
+**M.** (1) `tools_cd_vs_parallax.py` with `RAMPS=a,b`: per-parallax-bin CD of two ramp widths, 10 clips × 4 frames. (2) Full E11 benchmark of ±1.5 / 1.0 / 0.75 / 0.5° (photometric confidence) + DP cut (`results/e42_ramp.json`). (3) Temporal benchmark (E16) incl. ±0.75°.
+**R.** (1) ±3° vs ±1.5°: worse in every bin, more at high parallax (ratio 1.05 → 1.14). ±0.75° vs ±1.5°: better in every bin, more at high parallax (0.97 → 0.88; 0.76 in the 10-bin top class). (2) CD 0.0309 / 0.0301 / **0.0298** / 0.0299; fidelity-hard 0.927 / 0.943 / 0.952 / 0.960; edge-hard 0.085 / 0.087 / 0.088 / 0.087 (n.s.); ±0.75 vs ±1.5: CD 59/100 (p = 0.002), CD-hard 66/100 (p = 2e-5), fidelity 99/100, step +0.0003 (p < 0.001, negligible). vs DP cut: CD 100/100, CD-hard 99/100. (3) Excess flicker −0.035 [−0.154, +0.040], 3/8 above reference — like the cut (−0.033). Live preview (shader ±0.75°): CD 0.0425, morph better than cut-only 56/60 (was 45/60).
+**C.** Default ramp is now ±0.75° (engine, shader, live emulation). The ±1.5° choice (E11) was made under the wrong stream scale, when a wider ramp still had misregistration to blur. Paper and table updated; 8K numbers remain for ±1.5°.
+
 ---
 
 ## Open questions / next experiments

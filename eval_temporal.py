@@ -58,7 +58,7 @@ def main():
                   key=lambda c: c["id"])
     clips = random.Random(a.seed).sample(pool, min(a.clips, len(pool)))
     eq = view_dirs("equirect", W_OUT, H_OUT)
-    methods = ["single", "legacy", "smart", "flow"]
+    methods = ["single", "legacy", "smart", "flow", "flow075"]
     results = []
     for c in clips:
         f = c["path"]
@@ -67,7 +67,7 @@ def main():
         lenses = [Lens(cal, L) for L in cal["lenses"]]
         ts, Ms = level_frames(f)
         t0 = random.Random(c["id"]).uniform(1, c["duration"] - a.seconds - 1)
-        engines = {"smart": SmartStitch(cal, lenses), "flow": FlowStitch(cal, lenses)}
+        engines = {"smart": SmartStitch(cal, lenses), "flow": FlowStitch(cal, lenses), "flow075": FlowStitch(cal, lenses, ramp=0.75)}
         prev = {m: None for m in methods}
         acc = {m: [] for m in methods}
         for t, imgs in frames(f, t0, a.seconds, a.fps, W):

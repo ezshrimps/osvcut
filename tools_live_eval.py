@@ -88,7 +88,7 @@ def main():
                 path = np.asarray(o.fpath); fa, fb = [o.flow[j, 0].cpu().numpy() for j in (0, 1)]
                 eng.logr = np.array(o.logr)
                 eng.ov_c = torch.tensor(path, dtype=torch.float32, device=dev)
-            for name, half, fl in (("live_cut", 0.5, 0.0), ("live_morph", 1.5, 1.0)):
+            for name, half, fl in (("live_cut", 0.5, 0.0), ("live_morph", 0.75, 1.0)):
                 eng.ov_w = torch.full((eng.fW,), half, device=dev)
                 f2 = np.stack([fa, fb])[:, None, :].repeat(eng.fH, 1) * fl
                 eng.flow = torch.tensor(f2, dtype=torch.float32, device=dev)

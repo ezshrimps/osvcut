@@ -449,9 +449,9 @@ vec3 scene(vec3 v){
       cen = bstar;
       t = clamp((beta - bstar)/1.0 + 0.5, 0.0, 1.0); t = t*t*(3.0-2.0*t);
       if(flowOn==1 && abs(beta) < 4.3){
-        // morph like the export seam (E35): one (d_alpha, d_beta) per azimuth, half-way alignment over +-1.5 deg
+        // morph like the export seam (E35): one (d_alpha, d_beta) per azimuth, half-way alignment over +-0.75 deg
         vec2 F = (texture(flowTex, vec2(alpha, row)).rg - 0.5)*2.0*flowRange;
-        t = clamp((beta - bstar)/3.0 + 0.5, 0.0, 1.0); t = t*t*(3.0-2.0*t);
+        t = clamp((beta - bstar)/1.5 + 0.5, 0.0, 1.0); t = t*t*(3.0-2.0*t);   // +-0.75 deg (E42)
         float al = alpha*6.28318530718, be = radians(beta);
         float aA = al - radians(t*F.x), bA = be - radians(t*F.y);
         float aB = al + radians((1.0-t)*F.x), bB = be + radians((1.0-t)*F.y);

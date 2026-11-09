@@ -47,6 +47,8 @@ def make_engine(name, cal, lenses):
         opts["center"] = "dp"
     elif name == "flow_dp_r15":
         opts.update(center="dp", ramp=1.5)
+    elif name.startswith("flow_dp_rr"):            # ramp sweep, e.g. flow_dp_rr075 = +-0.75 deg (E42)
+        opts.update(center="dp", ramp=int(name[-3:]) / 100, conf="photo")
     elif name == "flow_dp_r3":
         opts.update(center="dp", ramp=3.0)
     elif name.startswith("fbp_"):                  # Farneback parameter sweep, e.g. fbp_3_15_4_5_11 (E37)
