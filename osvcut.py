@@ -6,13 +6,14 @@ from seam import SmartStitch, FlowStitch
 dev="cuda"
 P=np.array([[0,-1,0],[-1,0,0],[0,0,1.]])   # imu axes -> body axes (empirical)
 
+_ATT_CACHE={}
 def attitudes(f,t0,t1):
-    pk=packets(f,None,None,f"{max(t0-0.05,0)}%{t1+0.05}")
-    ts=[];qs=[]
-    for t,b in pk:
-        a=get(tree(b),3,2,9)
-        if a: ts.append(t); qs.append([dict(a).get(i,0.) for i in (1,2,3,4)])
-    return np.array(ts),np.array(qs)
+    """(seconds, quaternions) for frames in [t0, t1] from the primary djmd track."""
+    from djmd import frame_attitudes
+    if f not in _ATT_CACHE: _ATT_CACHE[f]=frame_attitudes(f)
+    ts,qs=_ATT_CACHE[f]
+    sel=(ts>=t0-0.05)&(ts<=t1+0.05)
+    return ts[sel],qs[sel]
 
 def body_frames(ts,qs,smooth_s=1.0,mode="level"):
     """per-sample 3x3 M (columns = out x,y,z expressed in body)"""

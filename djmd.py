@@ -55,3 +55,40 @@ if __name__=="__main__":
     pk=packets(f,None,2,"%+#2")
     t=tree(pk[0][1])
     import pprint; pprint.pprint(t,width=200,compact=True)
+
+
+def djmd_raw(f, stream=None):
+    """The whole primary djmd track as bytes (fast: stream copy, no hex dump)."""
+    if stream is None:
+        stream = djmd_index(f)
+    return subprocess.run(["ffmpeg", "-v", "error", "-i", f, "-map", f"0:{stream}", "-c", "copy", "-f", "data", "-"],
+                          capture_output=True).stdout
+
+
+def frame_attitudes(f):
+    """Per-frame (seconds_from_first_frame, quaternion w,x,y,z) for the whole clip.
+
+    The track is a concatenation of ProductMeta messages; parsed as one message it is a flat list of
+    top-level fields in which every frame contributes exactly one field 3 (FrameMeta)."""
+    import numpy as np
+    ts, qs = [], []
+    for fn, wt, v in parse(djmd_raw(f)):
+        if fn != 3 or wt != 2:
+            continue
+        t_us = None
+        q = None
+        for fn2, wt2, v2 in parse(v):
+            if fn2 == 1 and wt2 == 2:
+                for fn3, wt3, v3 in parse(v2):
+                    if fn3 == 2 and wt3 == 0:
+                        t_us = v3
+            elif fn2 == 2 and wt2 == 2:
+                for fn3, wt3, v3 in parse(v2):
+                    if fn3 == 9 and wt3 == 2:
+                        d = {a: b for a, _, b in parse(v3)}
+                        q = [d.get(1, 0.0), d.get(2, 0.0), d.get(3, 0.0), d.get(4, 0.0)]
+        if t_us is not None and q is not None:
+            ts.append(t_us)
+            qs.append(q)
+    ts = np.array(ts, dtype=np.float64)
+    return (ts - ts[0]) / 1e6 if len(ts) else ts, np.array(qs)

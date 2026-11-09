@@ -88,6 +88,20 @@ textarea{width:100%;height:150px;margin-top:10px;background:#0b0c0e;border:1px s
 body.flat .stage,body.flat .transport{display:none}
 body.flat .flatview{display:flex}
 
+/* ---------- info timeline ---------- */
+.tlwrap{position:relative;background:var(--panel);border-top:1px solid var(--line);padding:6px 14px 0}
+.tlwrap canvas{display:block;width:100%;height:64px;cursor:pointer;border-radius:4px}
+.tltip{position:absolute;bottom:72px;transform:translateX(-50%);background:rgba(0,0,0,.85);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px;max-width:420px;pointer-events:none;display:none;white-space:normal;z-index:4}
+.tllegend{display:flex;gap:12px;font-size:11px;color:var(--dim);padding:3px 0 4px}
+.tllegend span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.lg-m::before{background:#f2a93b}.lg-s::before{background:#e5616b}.lg-v::before{background:#4fc3d9}.lg-k::before{background:#fff}.lg-io::before{background:rgba(125,220,138,.6)}
+body.flat .tlwrap,body.lib .tlwrap{display:none}
+.tx{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow-y:auto}
+.tx div{display:flex;gap:8px;padding:3px 6px;border-radius:5px;cursor:pointer;font-size:12px}
+.tx div:hover{background:var(--panel2)}
+.tx div.on{background:var(--panel2);color:var(--accent2)}
+.tx b{font-family:var(--mono);font-weight:400;color:var(--dim);flex:none;font-size:11px;padding-top:1px}
+
 /* ---------- library ---------- */
 .libview{display:none;flex:1;overflow:auto;min-height:0;background:var(--bg)}
 body.lib .stage,body.lib .transport,body.lib aside{display:none}
@@ -155,7 +169,7 @@ body.lib .libview{display:block}
   <header>
     <h1><span>osv</span>cut studio</h1>
     <div class="tabs"><button id="tabLib">素材库</button><button id="tab360" class="on">360° 查看</button><button id="tabFlat">成片 &amp; 任务 <span id="jobdot"></span></button></div>
-    <div class="hint">拖动转视角 · 滚轮缩放 · <kbd>空格</kbd> 播放 · <kbd>←</kbd><kbd>→</kbd> ±1s · <kbd>K</kbd> 加关键帧 · <kbd>B</kbd> 新/旧拼接</div>
+    <div class="hint">拖动转视角 · 滚轮缩放 · <kbd>空格</kbd> 播放 · <kbd>←</kbd><kbd>→</kbd> ±1s · <kbd>K</kbd> 关键帧 · <kbd>I</kbd>/<kbd>O</kbd> 入出点 · <kbd>B</kbd> 新/旧拼接</div>
   </header>
 
   <main>
@@ -175,6 +189,11 @@ body.lib .libview{display:block}
         <div class="pbar" id="genBar" style="display:none"><i></i></div>
         <div class="btns"><button class="btn primary" id="genGo">生成预览</button><span class="minicap" id="genEta"></span></div>
       </div>
+    </div>
+    <div class="tlwrap" id="tlwrap">
+      <canvas id="tl" height="64"></canvas>
+      <div class="tltip" id="tltip"></div>
+      <div class="tllegend"><span class="lg-m">运动</span><span class="lg-s">晃动</span><span class="lg-v">语音</span><span class="lg-k">关键帧</span><span class="lg-io">入/出点 <kbd>I</kbd><kbd>O</kbd></span></div>
     </div>
     <div class="transport">
       <button id="play" title="播放/暂停">▶</button>
@@ -209,6 +228,11 @@ body.lib .libview{display:block}
       <h2>全景片段</h2>
       <div class="clips" id="clips"></div>
       <div class="minicap" id="clipnote"></div>
+    </section>
+
+    <section>
+      <h2>语音转写</h2>
+      <div class="tx" id="tx"><div class="empty">打开素材库里的片段后自动转写</div></div>
     </section>
 
     <section>
@@ -370,9 +394,10 @@ function writeSpec(){
   const c=state.clip; if(!c) return;
   const ks=[...state.keys].sort((a,b)=>a.t-b.t);
   const size=state.aspect&&Math.abs(state.aspect-0.5625)<.01?[1080,1920]:state.aspect===1?[1080,1080]:[1920,1080];
-  const tin=ks.length?Math.max(0,ks[0].t):0, tout=ks.length?Math.min(vid.duration||ks.at(-1).t+1,ks.at(-1).t+1):(vid.duration||0);
+  let tin=ks.length?Math.max(0,ks[0].t):0, tout=ks.length?Math.min(vid.duration||ks.at(-1).t+1,ks.at(-1).t+1):(vid.duration||0);
+  if(state.inP!=null) tin=state.inP; if(state.outP!=null) tout=state.outP;
   const spec={src:c.src,in:r2(c.in+tin),out:r2(c.in+tout),proj:'flat',size,fps:50,
-    keys:ks.map(k=>({t:r2(k.t-tin),yaw:r1(k.yaw),pitch:r1(k.pitch),fov:r1(k.fov)})),dst:`samples/${c.id}_cut.mp4`};
+    keys:ks.map(k=>({t:r2(Math.max(0,k.t-tin)),yaw:r1(k.yaw),pitch:r1(k.pitch),fov:r1(k.fov)})),dst:`samples/${c.id}_cut.mp4`};
   $('spec').value=JSON.stringify(spec,null,1).replace(/\n\s+(?=[\d\-\]}])/g,' ').replace(/\{\n\s+/g,'{');
   $('specwarn').textContent=state.dist>0.001?'注意：osvcut 目前只渲染直线投影（畸变=0），畸变设置不会进入导出。':
     (ks.some(k=>k.fov>150)?'注意：直线投影下 fov>150° 边缘拉伸会很严重。':'');
@@ -464,7 +489,7 @@ function frame(){
   gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.yaw,state.yaw*D2R);gl.uniform1f(U.pitch,state.pitch*D2R);
   gl.uniform1f(U.hfov,Math.min(state.hfov,maxFov(state.dist))*D2R);gl.uniform1f(U.dist,state.dist);gl.uniform1i(U.grid,state.grid?1:0);
   gl.drawArrays(gl.TRIANGLES,0,3);
-  drawMini();
+  drawMini(); drawTimeline(); updateTxHighlight();
   const d=vid.duration||0;$('time').textContent=`${vid.currentTime.toFixed(2)} / ${d.toFixed(2)}`;
   if(!seeking&&d) $('seek').value=vid.currentTime/d*1000;
   $('hud').innerHTML=`yaw <b>${normYaw(state.yaw).toFixed(1)}°</b> · pitch <b>${state.pitch.toFixed(1)}°</b> · fov <b>${Math.round(state.hfov)}°</b> · 畸变 <b>${state.dist.toFixed(2)}</b>`;
@@ -517,6 +542,7 @@ async function loadClip(c){
     useStill(c.thumb); showGen(c);
   }
   renderKeys();
+  loadAnalysis(c);
 }
 function addRecent(c){
   const box=$('clips'); if(box.querySelector(`[data-id="${c.id}"]`)) return;
@@ -640,6 +666,88 @@ $('exportGo').onclick=async()=>{
   toast('已加入导出队列'); pollJobs();
 };
 
+/* ---------- info timeline: motion, shake, speech, keyframes, in/out ---------- */
+const tl=$('tl'), tlc=tl.getContext('2d');
+state.inP=null; state.outP=null; state.motion=null; state.tx=null;
+let anaToken=0;
+function clipDuration(){return vid.duration||state.clip?.raw?.duration||0}
+function libIdFor(c){if(!c)return null; if(c.lib)return c.id; const m=LIB.clips.find(x=>x.src===c.src); return m?m.id:null}
+async function loadAnalysis(c){
+  const tok=++anaToken; state.motion=null; state.tx=null; state.inP=state.outP=null;
+  const id=libIdFor(c); renderTx();
+  if(!id){$('tx').innerHTML='<div class="empty">这段不在素材库里，无法分析</div>';return}
+  fetch(`/api/clip/${id}/motion`).then(r=>r.json()).then(m=>{if(tok===anaToken&&!m.error)state.motion=m});
+  const poll=async()=>{
+    if(tok!==anaToken) return;
+    let t; try{t=await (await fetch(`/api/clip/${id}/transcript`)).json()}catch{return}
+    if(t.status==='done'){state.tx=t; renderTx()}
+    else{$('tx').innerHTML=`<div class="empty">正在转写语音… ${Math.round((t.progress||0)*100)}%</div>`; setTimeout(poll,2000)}
+  };
+  poll();
+}
+function renderTx(){
+  const box=$('tx'); const t=state.tx;
+  if(!t){box.innerHTML='<div class="empty">加载中…</div>';return}
+  if(!t.segments.length){box.innerHTML=`<div class="empty">${t.note==='no audio'?'这段没有音频':'没有检测到语音'}</div>`;return}
+  box.innerHTML=t.segments.map((s,i)=>`<div data-i="${i}"><b>${fmtDur(s.start)}</b><span>${esc(s.text)}</span></div>`).join('');
+  box.querySelectorAll('div[data-i]').forEach(d=>d.onclick=()=>{const s=t.segments[+d.dataset.i];if(vid.src)vid.currentTime=s.start+0.01});
+}
+let txActive=-1;
+function updateTxHighlight(){
+  if(!state.tx||!state.tx.segments.length) return;
+  const t=vid.currentTime, i=state.tx.segments.findIndex(s=>t>=s.start&&t<=s.end);
+  if(i===txActive) return; txActive=i;
+  $('tx').querySelectorAll('div[data-i]').forEach(d=>d.classList.toggle('on',+d.dataset.i===i));
+  const el=$('tx').querySelector(`div[data-i="${i}"]`); if(el) el.scrollIntoView({block:'nearest'});
+}
+function drawTimeline(){
+  const dpr=Math.min(devicePixelRatio||1,2), W=Math.round(tl.clientWidth*dpr), H=Math.round(64*dpr);
+  if(tl.width!==W||tl.height!==H){tl.width=W;tl.height=H}
+  const c=tlc, D=clipDuration(); c.clearRect(0,0,W,H); c.fillStyle='#0f1114'; c.fillRect(0,0,W,H);
+  if(!D) return;
+  const X=t=>t/D*W, mH=H*0.62, vY=H*0.70, vH=H*0.16;
+  // in/out
+  if(state.inP!=null||state.outP!=null){const a=X(state.inP??0), b=X(state.outP??D); c.fillStyle='rgba(125,220,138,.13)'; c.fillRect(a,0,b-a,H);
+    c.fillStyle='rgba(125,220,138,.9)'; if(state.inP!=null)c.fillRect(a-1,0,2,H); if(state.outP!=null)c.fillRect(b-1,0,2,H)}
+  // motion
+  const m=state.motion;
+  if(m&&m.speed.length){
+    const sp=m.speed, n=sp.length, sorted=[...sp].sort((a,b)=>a-b), top=Math.max(20,sorted[Math.floor(n*0.97)]||1);
+    c.beginPath(); c.moveTo(0,mH);
+    for(let x=0;x<W;x++){const i=Math.min(n-1,Math.floor(x/W*D*m.rate)); c.lineTo(x,mH-Math.min(1,sp[i]/top)*(mH-6))}
+    c.lineTo(W,mH); c.closePath(); c.fillStyle='rgba(242,169,59,.35)'; c.fill();
+    c.strokeStyle='rgba(242,169,59,.9)'; c.lineWidth=dpr; c.stroke();
+    // shake: red ticks where the high-frequency jitter is high
+    const sh=m.shake, st=[...sh].sort((a,b)=>a-b), thr=Math.max(15,st[Math.floor(sh.length*0.9)]||0);
+    c.fillStyle='rgba(229,97,107,.85)';
+    for(let x=0;x<W;x+=2){const i=Math.min(sh.length-1,Math.floor(x/W*D*m.rate)); if(sh[i]>thr) c.fillRect(x,mH+1,2,3*dpr)}
+  }else{c.fillStyle='#3a3f46';c.font=`${11*dpr}px sans-serif`;c.fillText('运动数据加载中…',8*dpr,mH/2)}
+  // speech
+  if(state.tx) for(const s of state.tx.segments){c.fillStyle='rgba(79,195,217,.85)'; c.fillRect(X(s.start),vY,Math.max(2,X(s.end)-X(s.start)),vH)}
+  // keyframes
+  c.fillStyle='#fff'; for(const k of state.keys){const x=X(k.t); c.beginPath(); c.moveTo(x,H-1); c.lineTo(x-4*dpr,H-7*dpr); c.lineTo(x+4*dpr,H-7*dpr); c.fill()}
+  // playhead
+  if(vid.src){c.fillStyle='#fff'; c.fillRect(X(vid.currentTime)-dpr,0,2*dpr,H)}
+}
+function tlTime(e){const r=tl.getBoundingClientRect(); return Math.max(0,Math.min(1,(e.clientX-r.left)/r.width))*clipDuration()}
+let tlDrag=false;
+tl.addEventListener('pointerdown',e=>{if(!vid.src)return; tlDrag=true; tl.setPointerCapture(e.pointerId); vid.currentTime=tlTime(e)});
+tl.addEventListener('pointerup',()=>tlDrag=false);
+tl.addEventListener('pointermove',e=>{
+  const t=tlTime(e); if(tlDrag&&vid.src) vid.currentTime=t;
+  const tip=$('tltip'), r=tl.getBoundingClientRect(), parts=[`<b>${fmtDur(t)}</b>`];
+  const m=state.motion; if(m&&m.speed.length){const i=Math.min(m.speed.length-1,Math.floor(t*m.rate)); parts.push(`转动 ${m.speed[i]}°/s · 倾斜 ${m.tilt[i]}°${m.shake[i]>25?' · <span style="color:#e5616b">晃动</span>':''}`)}
+  const s=state.tx?.segments.find(s=>t>=s.start&&t<=s.end); if(s) parts.push(`<span style="color:#4fc3d9">“${esc(s.text)}”</span>`);
+  tip.innerHTML=parts.join('<br>'); tip.style.display='block'; tip.style.left=(e.clientX-r.left+14)+'px';
+});
+tl.addEventListener('pointerleave',()=>$('tltip').style.display='none');
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT'&&e.target.type!=='range'&&e.target.type!=='checkbox')return;
+  if(e.key==='i'||e.key==='I'){state.inP=vid.currentTime; if(state.outP!=null&&state.outP<=state.inP)state.outP=null; writeSpec(); toast('入点 '+fmtDur(state.inP))}
+  else if(e.key==='o'||e.key==='O'){state.outP=vid.currentTime; if(state.inP!=null&&state.inP>=state.outP)state.inP=null; writeSpec(); toast('出点 '+fmtDur(state.outP))}
+  else if(e.key==='x'||e.key==='X'){state.inP=state.outP=null; writeSpec(); toast('已清除入/出点')}
+});
+
 /* ---------- tabs ---------- */
 function setTab(t){
   document.body.classList.toggle('flat',t==='flat'); document.body.classList.toggle('lib',t==='lib');
@@ -661,8 +769,9 @@ async function init(){
   }
   $('demogrid').innerHTML=CLIPS.flat.map(f=>`<figure><video src="${f.file}" controls loop preload="metadata"></video><figcaption>${f.title}</figcaption></figure>`).join('');
   syncControls();layout();requestAnimationFrame(frame);
+  await loadLibrary();
   if(CLIPS.equirect.length) loadClip(CLIPS.equirect[0]);
-  loadLibrary(); pollJobs();
+  pollJobs();
   if(location.hash==='#lib'||!CLIPS.equirect.length) setTab('lib');
 }
 init();

@@ -20,6 +20,7 @@ sys.path.insert(0, HERE)
 os.chdir(HERE)
 from serve import RangeHandler          # noqa: E402
 import library as libmod                # noqa: E402
+import analysis                         # noqa: E402
 
 PREVIEWS = os.path.join(HERE, "cache", "previews")
 EXPORTS = os.path.join(HERE, "exports")
@@ -57,13 +58,17 @@ def clip_public(c):
 
 
 # ---- jobs -----------------------------------------------------------------------
-def new_job(kind, title, spec, clip_id=None):
+def new_job(kind, title, spec, clip_id=None, cmd=None, output=None):
     jid = uuid.uuid4().hex[:10]
-    spec_path = os.path.join(SPECS, jid + ".json")
-    json.dump(spec, open(spec_path, "w", encoding="utf8"), ensure_ascii=False, indent=1)
+    spec_path = None
+    if spec is not None:
+        spec_path = os.path.join(SPECS, jid + ".json")
+        json.dump(spec, open(spec_path, "w", encoding="utf8"), ensure_ascii=False, indent=1)
+        cmd = [sys.executable, "-u", "osvcut.py", spec_path]
+        output = spec["dst"]
     job = dict(id=jid, kind=kind, title=title, clip=clip_id, status="queued", progress=0.0,
-               created=time.time(), started=None, finished=None, output=rel_url(spec["dst"]),
-               spec=spec_path, error=None, eta=None)
+               created=time.time(), started=None, finished=None, output=rel_url(output),
+               spec=spec_path, cmd=cmd, error=None, eta=None)
     JOBS[jid] = job
     JOBQ.put(jid)
     return job
@@ -77,7 +82,7 @@ def worker():
             continue
         job["status"], job["started"] = "running", time.time()
         try:
-            p = subprocess.Popen([sys.executable, "-u", "osvcut.py", job["spec"]], cwd=HERE,
+            p = subprocess.Popen(job["cmd"], cwd=HERE,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                  encoding="utf8", errors="replace")
             job["_proc"] = p
@@ -179,6 +184,27 @@ class Handler(RangeHandler):
         if m:
             c = LIB.get(m.group(1))
             return self._json(clip_public(c) if c else {"error": "unknown clip"}, 200 if c else 404)
+        m = re.match(r"^/api/clip/([0-9a-f]{12})/(motion|transcript)$", p)
+        if m:
+            c = LIB.get(m.group(1))
+            if not c:
+                return self._json({"error": "unknown clip"}, 404)
+            if m.group(2) == "motion":
+                try:
+                    return self._json(analysis.motion(c))
+                except Exception as e:
+                    return self._json({"error": str(e)}, 500)
+            out = analysis.transcript_path(c["id"])
+            if os.path.exists(out):
+                return self._json(dict(status="done", **json.load(open(out, encoding="utf8"))))
+            if not c.get("audio"):
+                return self._json(dict(status="done", language=None, segments=[], note="no audio"))
+            j = next((j for j in JOBS.values() if j["kind"] == "transcript" and j["clip"] == c["id"]
+                      and j["status"] in ("queued", "running")), None)
+            if not j:
+                j = new_job("transcript", f"{c['name']} · 语音转写", None, c["id"],
+                            cmd=[sys.executable, "-u", "analysis.py", "transcript", c["path"], out], output=out)
+            return self._json(dict(status=j["status"], job=j["id"], progress=j["progress"]))
         if p == "/api/jobs":
             return self._json([{k: v for k, v in j.items() if not k.startswith("_")}
                                for j in sorted(JOBS.values(), key=lambda j: -j["created"])])
