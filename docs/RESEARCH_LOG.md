@@ -272,6 +272,12 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 **R.** off 0.0925 vs search 0.0984, better in 13/36 frames (p = 0.12); with the search band narrowed to [−2, 0.6]°: 0.1014, 13/36 (p = 0.06).
 **C.** Not adopted (option kept, default off). The disparity measured a few degrees away from the seam is not the disparity *at* the 1° overlap (near ground and the holder's body change distance quickly with elevation), and a wide warp moves content that was already acceptable. In this sector, with the right geometry, the existing flow seam is as good as this prior can make it; the residual is real near-field parallax with too little shared view to fix from one frame.
 
+## E31 — Renderer throughput, round 2
+
+**M.** Per-stage timing of the export loop (1920×1080 flat, 30 fps, flow seam with photometric confidence, RTX 4070 Ti): decode of both streams 2.2 s per 5 s of footage (not the bottleneck); per frame yuv→rgb 5.4 ms, render 8.7 ms, readback 1.2 ms on the main thread; seam analysis (worker thread) ~45 ms, of which the minimum-cost closed path was 18 ms (a Python loop over 1 800 columns, with an array allocation per step) and Farneback 8 ms.
+**R.** DP path: per-step allocation removed (numpy fallback 8.5 ms) and an optional Numba kernel with identical tie-breaking (0.32 ms; equal paths on random cost maps with ties). Export 14.6 → 25.8 fps (seam every frame), 16.3 → 32.4 fps (every 2nd frame); 2880×1440 standard preview 17.2 → 14.9 s per 10 s.
+**C.** 1080p reframed exports now run faster than real time with `seam_every: 2`; the defaults keep analysis on every frame.
+
 ---
 
 ## Open questions / next experiments

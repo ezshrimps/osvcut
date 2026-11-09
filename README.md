@@ -31,7 +31,7 @@ DJI Studio (and plug-ins such as OpenOSV) are GUI-first. To let an AI edit 360 f
 
 ## Quick start
 
-Requirements: Python 3.10+, `torch` with CUDA, `opencv-python`, `numpy`, ffmpeg/ffprobe (with `h264_nvenc`) on PATH.
+Requirements: Python 3.10+, `torch` with CUDA, `opencv-python`, `numpy`, ffmpeg/ffprobe (with `h264_nvenc`) on PATH. Optional: `numba` (≈50× faster seam path search; a pure-numpy fallback gives identical results).
 
 ```bash
 # studio: library + 360 viewer + render queue

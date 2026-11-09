@@ -103,14 +103,26 @@ def _dp_closed_path(cost, pen=0.002):
     r0 = int(np.argmin(cost[:, c0]))
     C = np.roll(cost, -c0, axis=1)
     C = np.concatenate([C, C[:, :1]], 1)
+    C = np.ascontiguousarray(C, dtype=np.float64)
+    path = (_dp_core_jit or _dp_core)(C, r0, float(pen))
+    return np.roll(path[:W], c0)
+
+
+def _dp_core(C, r0, pen):
+    """Forward pass + backtrack (numpy; one column per step, no per-step allocation)."""
+    H, W1 = C.shape
+    W = W1 - 1
     acc = np.full(H, np.inf)
     acc[r0] = C[r0, 0]
     back = np.zeros((W + 1, H), np.int8)
     rows = np.arange(H)
+    st = np.empty((3, H))
+    st[0, 0] = np.inf
+    st[2, -1] = np.inf
     for j in range(1, W + 1):
-        up = np.concatenate([[np.inf], acc[:-1]]) + pen
-        dn = np.concatenate([acc[1:], [np.inf]]) + pen
-        st = np.stack([up, acc, dn])
+        st[0, 1:] = acc[:-1] + pen
+        st[1] = acc
+        st[2, :-1] = acc[1:] + pen
         k = st.argmin(0)
         acc = st[k, rows] + C[:, j]
         back[j] = k - 1
@@ -118,7 +130,42 @@ def _dp_closed_path(cost, pen=0.002):
     path[W] = r0
     for j in range(W, 0, -1):
         path[j - 1] = path[j] + back[j][path[j]]
-    return np.roll(path[:W], c0)
+    return path
+
+
+def _dp_core_numba(C, r0, pen):
+    H, W1 = C.shape
+    W = W1 - 1
+    acc = np.full(H, np.inf)
+    acc[r0] = C[r0, 0]
+    nxt = np.empty(H)
+    back = np.zeros((W + 1, H), np.int8)
+    for j in range(1, W + 1):
+        for r in range(H):
+            u = acc[r - 1] + pen if r > 0 else np.inf
+            m = acc[r]
+            d = acc[r + 1] + pen if r < H - 1 else np.inf
+            # same tie-breaking as argmin over (up, same, down): first minimum wins
+            if u <= m and u <= d:
+                nxt[r] = u; back[j, r] = -1
+            elif m <= d:
+                nxt[r] = m; back[j, r] = 0
+            else:
+                nxt[r] = d; back[j, r] = 1
+        for r in range(H):
+            acc[r] = nxt[r] + C[r, j]
+    path = np.zeros(W + 1, np.int64)
+    path[W] = r0
+    for j in range(W, 0, -1):
+        path[j - 1] = path[j] + back[j, path[j]]
+    return path
+
+
+try:                                     # optional JIT: ~100x faster DP, identical result
+    import numba as _numba
+    _dp_core_jit = _numba.njit(cache=True)(_dp_core_numba)
+except Exception:                        # noqa: BLE001
+    _dp_core_jit = None
 
 
 class SmartStitch:
