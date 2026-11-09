@@ -103,6 +103,67 @@ def interp_kf(kfs,t):
                         dist=a.get("dist",0)+(b.get("dist",0)-a.get("dist",0))*s)
     return kfs[-1]
 
+
+import threading, queue
+
+class FrameReader:
+    """Decode both lens streams side by side as yuv420p in a background thread (NVDEC when available)."""
+    def __init__(self,f,t0,t1,step,W,hw=True):
+        self.args=(f,t0,t1,step,W); self.fb=W*2*W*3//2; self.q=queue.Queue(maxsize=4)
+        self.p=self._start(hw)
+        first=self.p.stdout.read(self.fb)
+        if len(first)<self.fb and hw:           # NVDEC unavailable / failed: fall back to CPU decoding
+            self.p.kill(); self.p=self._start(False); first=self.p.stdout.read(self.fb)
+        self.first=first if len(first)==self.fb else None
+        self.th=threading.Thread(target=self._run,daemon=True); self.th.start()
+    def _start(self,hw):
+        f,t0,t1,step,W=self.args
+        return subprocess.Popen(["ffmpeg","-v","error"]+(["-hwaccel","cuda"] if hw else [])+["-ss",str(t0),"-to",str(t1),"-i",f,
+            "-filter_complex",f"[0:v:0][0:v:1]hstack,select='not(mod(n\\,{step}))'","-fps_mode","passthrough",
+            "-f","rawvideo","-pix_fmt","yuv420p","-"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    def _run(self):
+        if self.first is not None:
+            self.q.put(self.first)
+            while True:
+                raw=self.p.stdout.read(self.fb)
+                if len(raw)<self.fb: break
+                self.q.put(raw)
+        self.q.put(None)
+    def __iter__(self):
+        while True:
+            raw=self.q.get()
+            if raw is None: return
+            yield raw
+    def close(self):
+        try: self.p.kill()
+        except Exception: pass
+
+class FrameWriter:
+    """Feed the encoder from a background thread so GPU work overlaps encoding."""
+    def __init__(self,enc):
+        self.enc=enc; self.q=queue.Queue(maxsize=4)
+        self.th=threading.Thread(target=self._run,daemon=True); self.th.start()
+    def _run(self):
+        while True:
+            b=self.q.get()
+            if b is None: break
+            self.enc.stdin.write(b)
+        self.enc.stdin.close()
+    def put(self,b): self.q.put(b)
+    def close(self): self.q.put(None); self.th.join()
+
+def yuv420_to_rgb(raw,H,Wd):
+    """yuv420p (limited range, BT.709) bytes -> (3,H,Wd) float RGB on the GPU."""
+    b=torch.frombuffer(bytearray(raw),dtype=torch.uint8).to(dev)
+    n=H*Wd
+    Y=b[:n].view(1,1,H,Wd).float()
+    UV=b[n:].view(2,1,H//2,Wd//2).float()
+    UV=F.interpolate(UV,size=(H,Wd),mode="bilinear",align_corners=False)
+    y=(Y[0,0]-16)*(1/219); u=(UV[0,0]-128)*(1/224); v=(UV[1,0]-128)*(1/224)
+    kr,kb=0.2126,0.0722; kg=1-kr-kb
+    R=y+2*(1-kr)*v; B=y+2*(1-kb)*u; G=(y-kr*R-kb*B)/kg
+    return torch.stack([R,G,B]).clamp(0,1)
+
 def render(spec):
     f=spec["src"]; t0,t1=spec["in"],spec["out"]; mode=spec.get("proj","flat")
     Wo,Ho=spec.get("size",[1920,1080]); fps=spec.get("fps",50)
@@ -114,17 +175,15 @@ def render(spec):
     kfs=spec.get("keys",[{"t":0,"yaw":0,"pitch":0,"fov":100}])
     srcfps=float(eval(subprocess.run(["ffprobe","-v","error","-select_streams","v:0","-show_entries","stream=r_frame_rate","-of","csv=p=0",f],capture_output=True,text=True).stdout.strip().split("\n")[0]))
     step=max(1,round(srcfps/fps)); fps_out=srcfps/step
-    dec=subprocess.Popen(["ffmpeg","-v","error","-ss",str(t0),"-to",str(t1),"-i",f,"-filter_complex",
-        f"[0:v:0][0:v:1]hstack,select='not(mod(n\\,{step}))'","-fps_mode","passthrough","-f","rawvideo","-pix_fmt","rgb24","-"],stdout=subprocess.PIPE)
+    reader=FrameReader(f,t0,t1,step,W,hw=spec.get("decode","nvdec")!="cpu")
     enc=subprocess.Popen(["ffmpeg","-v","error","-y","-f","rawvideo","-pix_fmt","rgb24","-s",f"{Wo}x{Ho}","-r",str(fps_out),"-i","-",
         "-ss",str(t0),"-to",str(t1),"-i",f,"-map","0:v","-map","1:a?","-c:v","h264_nvenc","-preset","p5","-cq",str(spec.get("cq",20)),"-pix_fmt","yuv420p","-c:a","aac","-shortest"]+(["-r",str(fps)] if spec.get("force_fps") else [])+[spec["dst"]],stdin=subprocess.PIPE)
-    fb=W*2*W*3; i=0
+    writer=FrameWriter(enc)
+    every=max(1,int(spec.get("seam_every",1))); i=0
     total=max(1,int((t1-t0)*fps_out)); eq_base=None
-    while True:
-        raw=dec.stdout.read(fb)
-        if len(raw)<fb: break
+    for raw in reader:
         t=t0+i*step/srcfps; i+=1
-        im=torch.frombuffer(bytearray(raw),dtype=torch.uint8).to(dev).view(W,2*W,3).permute(2,0,1).float()/255
+        im=yuv420_to_rgb(raw,W,2*W)
         imgs=[im[None,:,:,:W],im[None,:,:,W:]]
         M=Ms[min(np.searchsorted(ts,t),len(Ms)-1)]
         if i%10==0: print(f"progress {i}/{total}",flush=True)
@@ -139,7 +198,8 @@ def render(spec):
         Mt=torch.tensor(M@C,dtype=torch.float32,device=dev)
         d=base@Mt.T
         if smart:
-            eng.update(imgs); out=eng.render(imgs,d)
+            if (i-1)%every==0: eng.update(imgs)
+            out=eng.render(imgs,d)
         else:
             out=0; ws=0
             pairs=list(zip(lenses,imgs))
@@ -149,8 +209,8 @@ def render(spec):
                 out=out+c*w; ws=ws+w
             out=(out/(ws+1e-6)).clamp(0,1)
         if vmask is not None: out=out*vmask
-        enc.stdin.write((out*255).byte().permute(1,2,0).contiguous().cpu().numpy().tobytes())
-    enc.stdin.close(); enc.wait(); dec.wait()
+        writer.put((out*255).byte().permute(1,2,0).contiguous().cpu().numpy().tobytes())
+    writer.close(); enc.wait(); reader.close()
     print(f"progress {total}/{total}",flush=True)
     print("rendered",i,"frames ->",spec["dst"],flush=True)
 
