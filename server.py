@@ -33,6 +33,18 @@ SPECS = os.path.join(HERE, "cache", "jobspecs")
 for d in (PREVIEWS, EXPORTS, SPECS, TRACKS, PROXIES, MUSIC):
     os.makedirs(d, exist_ok=True)
 
+# modules this process imports and renders with (blind test, look, one-click planning); exports run in fresh
+# subprocesses.  If they change on disk after start, the studio asks for a restart instead of silently using old code.
+_INPROC = ("seam.py", "osvcut.py", "stitch.py", "look.py", "blindtest.py", "autoedit.py", "proxy.py")
+_START_MTIME = {m: os.path.getmtime(os.path.join(os.path.dirname(os.path.abspath(__file__)), m))
+                for m in _INPROC if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), m))}
+
+
+def stale_modules():
+    here = os.path.dirname(os.path.abspath(__file__))
+    return [m for m, t in _START_MTIME.items() if os.path.getmtime(os.path.join(here, m)) > t + 1]
+
+
 PREVIEW_PRESETS = {
     "fast": dict(size=[1920, 960], fps=25, cq=26, seam="smart"),
     "standard": dict(size=[2880, 1440], fps=30, cq=23, seam="flow", seam_opts={"conf": "photo"}),
@@ -195,7 +207,7 @@ class Handler(RangeHandler):
         if p == "/api/library":
             return self._json(dict(scanning=LIB.scanning, scanned=LIB.scanned, total=LIB.total,
                                    clips=[clip_public(c) for c in LIB.listing()],
-                                   presets=PREVIEW_PRESETS))
+                                   presets=PREVIEW_PRESETS, stale=stale_modules()))
         m = re.match(r"^/api/thumb/([0-9a-f]{12})\.jpg$", p)
         if m:
             c = LIB.get(m.group(1))
