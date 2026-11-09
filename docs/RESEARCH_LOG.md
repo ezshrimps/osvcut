@@ -230,6 +230,12 @@ Paired (Wilcoxon signed-rank), flow+DP ±1.5° vs smart: CD better on 79/100 fra
 **R.** Checked visually on 3 single frames and a 12 s follow on the trail clip: the holder is in frame throughout (at the frame edge in 1/3 single frames, because the arm holds the stick sideways rather than towards the face).
 **C.** A useful zero-model starting point (studio button and template, MCP `holder_keys` / `look(at="holder")`); not a replacement for detection-based framing. Quantitative evaluation needs annotated face positions.
 
+## E27 — 8K mode
+
+**M.** E11 protocol restricted to 8K clips (2 × 3840² lenses): 6 clips × 5 frames, n = 30 (`eval_seams.py --mode 8K`).
+**R.** vs feathered: better on every metric (30/30 CD, p = 1.9e-9). vs DP cut: CD 17/30 better (−0.003, p = 0.047), CD-hard n.s. (p = 0.53), edge deviation slightly worse (n.s., p = 0.10), fidelity lower (by construction).
+**C.** At 8K (mostly indoor, static scenes in this corpus) the flow seam is on par with the DP cut; its advantage is concentrated in 4K handheld footage with near-field parallax. Reported as such in the paper.
+
 ---
 
 ## Open questions / next experiments

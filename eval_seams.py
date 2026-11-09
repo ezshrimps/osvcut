@@ -161,13 +161,15 @@ def main():
     ap.add_argument("--root", default=r"E:\Videos")
     ap.add_argument("--out", default="results/seam_bench.json")
     ap.add_argument("--methods", default=",".join(METHODS))
+    ap.add_argument("--mode", default="", help="4K or 8K to restrict the clip pool")
     a = ap.parse_args()
     METHODS[:] = a.methods.split(",")
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     lib = libmod.Library([a.root])
     if not lib.clips:
         lib.scan()
-    pool = sorted([c for c in lib.clips.values() if c.get("duration", 0) > 3 and c.get("lenses") == 2],
+    pool = sorted([c for c in lib.clips.values() if c.get("duration", 0) > 3 and c.get("lenses") == 2
+                   and (not a.mode or (("8K" if c.get("lens_px", 0) >= 3840 else "4K") == a.mode))],
                   key=lambda c: c["id"])
     clips = random.Random(a.seed).sample(pool, min(a.clips, len(pool)))
     D = strip_dirs()
