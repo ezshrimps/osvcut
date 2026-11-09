@@ -168,6 +168,18 @@ def test_nadir_patch_covers_cap_only():
     assert out[:, pole].std(1).max() < 0.1 and img[:, pole].std(1).min() > 0.2
 
 
+# ---------------------------------------------------------------- colour grade
+def test_grade_identity_and_exposure():
+    import torch
+    from osvcut import grade
+    x = torch.rand(3, 8, 8)
+    assert torch.equal(grade(x, {}), x)
+    y = grade(torch.full((3, 2, 2), 0.25), {"exposure": 1.0})
+    assert torch.allclose(y, torch.full_like(y, 0.25 * 2 ** (1 / 2.2)), atol=1e-4)    # +1 EV doubles linear light
+    g = grade(torch.tensor([0.2, 0.5, 0.8]).view(3, 1, 1), {"saturation": -1.0})
+    assert float(g.std()) < 1e-6                                                         # fully desaturated
+
+
 # ---------------------------------------------------------------- spherical metadata
 def test_spherical_injection_both_layouts():
     import shutil, subprocess, tempfile

@@ -341,6 +341,13 @@ body.bt .btview .btpair img{cursor:default}
       </div>
       <label class="check"><input type="checkbox" id="grid"> 经纬网格（检查地平线是否水平）</label>
       <label class="check"><input type="checkbox" id="seamViz"> 显示接缝（红线 = 当前拼缝，黄色 = 只有一个镜头看得到）</label>
+      <details id="gradeBox"><summary>调色（预览即导出效果）</summary>
+        <div class="row"><label>曝光</label><input type="range" id="gExp" min="-2" max="2" step="0.05" value="0"><output id="gExpv">0</output></div>
+        <div class="row"><label>对比度</label><input type="range" id="gCon" min="-0.5" max="0.5" step="0.01" value="0"><output id="gConv">0</output></div>
+        <div class="row"><label>饱和度</label><input type="range" id="gSat" min="-1" max="1" step="0.02" value="0"><output id="gSatv">0</output></div>
+        <div class="row"><label>色温</label><input type="range" id="gTmp" min="-1" max="1" step="0.02" value="0"><output id="gTmpv">0</output></div>
+        <button id="gReset" type="button">重置</button>
+      </details>
     </section>
 
     <section id="abSec">
@@ -415,7 +422,7 @@ vec4 lensSample(int i, vec3 db){
   if(seamOn==0) col *= (i==0 ? g0 : g1);
   return vec4(col, valid);
 }
-out vec4 o; const float PI=3.14159265359; uniform float nadirDeg; uniform int seamViz;
+out vec4 o; const float PI=3.14159265359; uniform float nadirDeg; uniform int seamViz; uniform vec4 gradeU;   // exposure EV, contrast, saturation, temperature
 float gSeam=0.0, gSingle=0.0;          // seam-inspection overlay terms, set by scene()
 vec3 scene(vec3 v){
   gSeam=0.0; gSingle=0.0;
@@ -487,6 +494,14 @@ void main(){
   vec3 c = scene(v);
   float sLine = gSeam, sOne = gSingle;
   if(nadirDeg>0.0) c = nadirFill(v, c);
+  if(gradeU != vec4(0.0)){                      // same maths as osvcut.grade
+    vec3 lin = pow(clamp(c,0.0,1.0), vec3(2.2)) * exp2(gradeU.x);
+    lin *= vec3(1.0+0.1*gradeU.w, 1.0, 1.0-0.1*gradeU.w);
+    vec3 x = pow(clamp(lin,0.0,1.0), vec3(1.0/2.2));
+    x = (x-0.5)*(1.0+gradeU.y)+0.5;
+    float y = dot(x, vec3(0.2126,0.7152,0.0722));
+    c = clamp(y + (x-y)*(1.0+gradeU.z), 0.0, 1.0);
+  }
   if(seamViz==1){ c = mix(c, vec3(1.0,0.85,0.2), sOne*0.22); c = mix(c, vec3(1.0,0.15,0.15), sLine*0.9); }
   if(grid==1){
     float lo=lon*180.0/PI, la=lat*180.0/PI;
@@ -506,7 +521,7 @@ function sh(t,s){const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShade
 const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-const U={};['seamOn','seamTex','gainTex','gglobTex','seamRows','seamRate','vtime','res','yaw','pitch','hfov','dist','grid','live','Mb','R0','R1','k0','k1','k05','k15','f0','f1','c0','c1','rlimTex','lensPx','thetaCut','g0','g1','tex','nadirDeg','seamViz'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const U={};['seamOn','seamTex','gainTex','gglobTex','seamRows','seamRate','vtime','res','yaw','pitch','hfov','dist','grid','live','Mb','R0','R1','k0','k1','k05','k15','f0','f1','c0','c1','rlimTex','lensPx','thetaCut','g0','g1','tex','nadirDeg','seamViz','gradeU'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 gl.uniform1i(U.tex,0); gl.uniform1i(U.rlimTex,1); gl.uniform1i(U.live,0);
 gl.uniform1i(U.seamTex,2); gl.uniform1i(U.gainTex,3); gl.uniform1i(U.gglobTex,4); gl.uniform1i(U.seamOn,0);
 const seamT=gl.createTexture(), gainT=gl.createTexture(), gglobT=gl.createTexture();
@@ -621,7 +636,7 @@ function writeSpec(){
   let tin=ks.length?Math.max(0,ks[0].t):0, tout=ks.length?Math.min(vid.duration||ks.at(-1).t+1,ks.at(-1).t+1):(vid.duration||0);
   if(state.inP!=null) tin=state.inP; if(state.outP!=null) tout=state.outP;
   const is360=$('projSel')?.value==='360';
-  const spec={src:c.src,in:r2(c.in+tin),out:r2(c.in+tout),proj:is360?'equirect':'flat',size:is360?[3840,1920]:size,...(is360?{spherical:true}:{}),fps:+($('fpsSel')?.value||50),seam:$('seamSel')?.value||'flow',cq:+($('cqSel')?.value||20),...(+($('nadirSel')?.value||0)>0?{nadir_patch:+$('nadirSel').value}:{}),...(+($('speedSel')?.value||1)!==1?{speed:+$('speedSel').value}:{}),
+  const spec={src:c.src,in:r2(c.in+tin),out:r2(c.in+tout),proj:is360?'equirect':'flat',size:is360?[3840,1920]:size,...(is360?{spherical:true}:{}),fps:+($('fpsSel')?.value||50),seam:$('seamSel')?.value||'flow',cq:+($('cqSel')?.value||20),...(+($('nadirSel')?.value||0)>0?{nadir_patch:+$('nadirSel').value}:{}),...(Object.keys(gradeVals()).length?{grade:gradeVals()}:{}),...(+($('speedSel')?.value||1)!==1?{speed:+$('speedSel').value}:{}),
     keys:ks.map(k=>Object.assign({t:r2(Math.max(0,k.t-tin)),yaw:r1(k.yaw),pitch:r1(k.pitch),fov:r1(k.fov)},k.dist>0.001?{dist:r2(k.dist)}:{},k.ease?{ease:k.ease}:{})),dst:`samples/${c.id}_cut.mp4`};
   $('spec').value=JSON.stringify(spec,null,1).replace(/\n\s+(?=[\d\-\]}])/g,' ').replace(/\{\n\s+/g,'{');
   $('specwarn').textContent=ks.some(k=>k.fov>150&&!(k.dist>0.3))?'提示：直线投影下 fov>150° 边缘拉伸严重，可调大「畸变」或用超广角/小行星预设。':'';
@@ -643,6 +658,10 @@ $('aspect').onchange=e=>{state.aspect=+e.target.value;layout();writeSpec()};
 $('speedSel').addEventListener('change',()=>{vid.playbackRate=+$('speedSel').value;$('rate').value=String(Math.min(1,+$('speedSel').value))});
 $('grid').onchange=e=>state.grid=e.target.checked;
 $('seamViz').onchange=e=>state.seamViz=e.target.checked;
+var GRADE=[['gExp','exposure'],['gCon','contrast'],['gSat','saturation'],['gTmp','temperature']];
+function gradeVals(){ const g={}; (GRADE||[]).forEach(([id,k])=>{const v=+($(id)?.value||0); if(v) g[k]=v;}); return g; }
+GRADE.forEach(([id])=>{ $(id).oninput=()=>{ $(id+'v').textContent=(+$(id).value).toFixed(2).replace(/\.?0+$/,'')||'0'; writeSpec(); }; });
+$('gReset').onclick=()=>{ GRADE.forEach(([id])=>{ $(id).value=0; $(id+'v').textContent='0'; }); writeSpec(); };
 $('follow').onchange=e=>state.follow=e.target.checked;
 $('addkf').onclick=addKey;
 function addKey(){state.keys=state.keys.filter(k=>Math.abs(k.t-vid.currentTime)>0.02);
@@ -715,7 +734,7 @@ function frame(){
   else if(vid.readyState>=2&&(frameDirty||!vid.paused)){gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,vid);frameDirty=false;$('loading').style.display='none';}
   gl.viewport(0,0,canvas.width,canvas.height);
   gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.yaw,state.yaw*D2R);gl.uniform1f(U.pitch,state.pitch*D2R);
-  gl.uniform1f(U.hfov,Math.min(state.hfov,maxFov(state.dist))*D2R);gl.uniform1f(U.dist,state.dist);gl.uniform1f(U.nadirDeg,+($('nadirSel')?.value||0));gl.uniform1i(U.grid,state.grid?1:0);gl.uniform1i(U.seamViz,state.seamViz?1:0);
+  gl.uniform1f(U.hfov,Math.min(state.hfov,maxFov(state.dist))*D2R);gl.uniform1f(U.dist,state.dist);gl.uniform1f(U.nadirDeg,+($('nadirSel')?.value||0));gl.uniform1i(U.grid,state.grid?1:0);gl.uniform1i(U.seamViz,state.seamViz?1:0);{const g=gradeVals();gl.uniform4f(U.gradeU,g.exposure||0,g.contrast||0,g.saturation||0,g.temperature||0);}
   if(RIG){gl.uniformMatrix3fv(U.Mb,false,rigMatrix(vid.currentTime||0)); gl.uniform1f(U.vtime,vid.currentTime||0);}
   gl.drawArrays(gl.TRIANGLES,0,3);
   drawMini(); drawTimeline(); updateTxHighlight();

@@ -190,6 +190,18 @@ def nadir_patch(img,d_out,radius_deg):
     w=((el-(lim-1))/2).clamp(0,1)
     return img*(1-w)+fill*w
 
+def grade(img,g):
+    """Basic colour grade on a gamma-encoded (3,H,W) image, same maths as the studio shader.
+    g: {exposure: EV, contrast: -1..1, saturation: -1..1, temperature: -1..1 (warm > 0)}."""
+    ev=float(g.get("exposure",0)); ct=float(g.get("contrast",0)); sat=float(g.get("saturation",0)); tmp=float(g.get("temperature",0))
+    if not (ev or ct or sat or tmp): return img
+    lin=img.clamp(0,1)**2.2*(2.0**ev)
+    wb=torch.tensor([1+0.1*tmp,1.0,1-0.1*tmp],device=img.device).view(3,1,1)
+    x=(lin*wb).clamp(0,1)**(1/2.2)
+    x=(x-0.5)*(1+ct)+0.5
+    y=(0.2126*x[0]+0.7152*x[1]+0.0722*x[2])[None]
+    return (y+(x-y)*(1+sat)).clamp(0,1)
+
 def render(spec):
     f=spec["src"]; t0,t1=spec["in"],spec["out"]; mode=spec.get("proj","flat")
     Wo,Ho=spec.get("size",[1920,1080]); fps=spec.get("fps",50)
@@ -266,6 +278,7 @@ def render(spec):
         if vmask is not None: out=out*vmask
         if spec.get("nadir_patch",0)>0:
             out=nadir_patch(out,base@torch.tensor(C,dtype=torch.float32,device=dev).T,float(spec["nadir_patch"]))
+        if spec.get("grade"): out=grade(out,spec["grade"])
         writer.put((out*255).byte().permute(1,2,0).contiguous().cpu().numpy().tobytes())
     if pending is not None: pending.result()
     if pool is not None: pool.shutdown()
