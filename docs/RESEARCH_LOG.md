@@ -367,6 +367,7 @@ Re-run with the ±0.75° default (E42): ratio 0.92 / 0.83 / 0.80 / 0.72 / 0.60 /
 **Q.** The DP path paid 2.0 wherever it came closer than 0.6° to the overlap edge — a margin sized for the old ±1.5° ramp. Still needed with ±0.75° (and the ramp narrowing by itself near the edge)?
 **M.** `FlowStitch(room_min)`: 0 / 0.1 / 0.2 / 0.4 / 0.6 / 1.0°, 10 clips × 4 frames; then 100 frames and the temporal benchmark for 0.
 **R.** 40 frames: smaller is better on every metric (0 → CD 0.0290, edge-hard 0.043, edge 0.028, step 0.0095). 100 frames, 0 vs 0.6: CD 0.0263 vs 0.0269 (84/100, p = 3e-12), CD-hard 0.0390 vs 0.0398 (74/100), edge-hard 0.058 vs 0.061 (58/100, p = 0.026), fidelity-hard 0.963 vs 0.960 (93/100), step 0.0092 vs 0.0095 (mean lower, 22/100 frames, negligible), flicker −0.023 vs −0.022. vs DP cut: CD 100/100 (−41 %), step 69/100, edge n.s. (p = 0.28), edge-hard still behind (0.058 vs 0.043, p = 0.002).
+Re-runs with the final settings: 8K CD 30/30 vs the cut, hard 29/30 (p = 8e-8), step 28/30, edge n.s. (p = 0.26); E41 ratio 0.76 → 0.57 (0.42 top bin); live morph 0.039 vs cut 0.046 (49/60).
 **C.** Default `room_min = 0`. A modest gain; the 40-frame subset overstated it (edge-hard parity with the cut there, not on 100 frames).
 
 ---
