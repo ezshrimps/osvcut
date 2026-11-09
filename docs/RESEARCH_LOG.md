@@ -1,0 +1,120 @@
+# osvcut research log
+
+Structured record of every experiment, written to be turned into a paper.
+Each entry: **Question → Method → Data → Result → Conclusion → Reproduce**.
+Hardware for all timings: RTX 4070 Ti (12 GB), Windows 11, PyTorch 2.10 + CUDA 12.6, ffmpeg 8.0.1.
+
+## Dataset
+
+Private corpus of 239 `.OSV` clips (431.7 GB, 8.08 h) from one DJI Osmo 360, 2025-09 → 2026-04:
+226 clips in 4K mode (2 × 1920² HEVC Main10 fisheye, 100 fps, AAC), 12 in 8K mode (2 × 3840², 29.97 fps, no audio), 1 4K without audio.
+Scenes: outdoor travel (sun, sky, hiking, crowds), indoor (restaurants, casinos, arcades), night events, sports.
+Mostly handheld on an invisible selfie stick. Footage is not redistributable (people's faces); the code and the metrics are.
+
+Clips used repeatedly below:
+- **Y** – Yosemite falls, 10.2 s, 4K, crowd close to the camera, selfie stick tilted.
+- **H** – Hawaii trail, 49.2 s, 4K, harsh backlight, friends walking within 0.3–1 m.
+- **K** – Hong Kong restaurant, 10.0 s, 8K, static, table 0.3 m below.
+
+---
+
+## E1 — The OSV container is plain ISO-BMFF
+
+**Q.** Can footage be read without vendor SDKs?
+**M.** ffprobe all 239 clips; dump the `djmd` track; decode protobuf without a schema (`djmd.py`), cross-check field meanings against OpenOSV `docs/FORMAT.md`.
+**R.** ffmpeg demuxes every clip: two HEVC Main10 tracks (slave = stream 0, optical axis −Y; master = stream 1, +Y), AAC, two `djmd` metadata tracks, two `dbgi` tracks, MJPEG cover. Sample 0 of the primary `djmd` track holds 24 calibration slots (Kannala-Brandt fx, fy, cx, cy, k1..k5 in a 3840² calibration space, extrinsic quaternion, 14-point occlusion polygon); every frame holds a fused attitude quaternion and accelerometer vector. The schema name in our firmware is `dvtm_oq101.proto`, not `dvtm_osmo360.proto`, with the same layout. 4K mode maps calibration to stream pixels with `s = digital_focal_length / fx` (530.79 / 1047.95 = 0.5065) about the image centre.
+**C.** OSV is ordinary MP4 + protobuf; a scriptable pipeline needs only ffmpeg + a small decoder.
+**Reproduce.** `python djmd.py <clip>`.
+
+## E1b — Reading per-frame metadata fast
+
+**Q.** ffprobe `-show_data` hex dumps are too slow for whole clips (minutes for long clips).
+**M.** Stream-copy the `djmd` track (`ffmpeg -map 0:<djmd> -c copy -f data -`) and parse the concatenation as **one** protobuf message: every sample contributes exactly one top-level field 3 (FrameMeta), so frames split for free.
+**R.** 10 s clip: 0.13 s (vs. several seconds); 19-min clip (115 443 frames): 22 s, then cached.
+**Reproduce.** `djmd.frame_attitudes()`.
+
+## E2 — IMU axes vs. lens body axes
+
+**Q.** The per-frame attitude quaternion is in IMU axes; how do they map to the lens body frame (X right, Y forward = master, Z up)?
+**M.** (a) Check R(q)ᵀ·ẑ against the normalised accelerometer vector. (b) Render one levelled equirect frame of Y for all 24 signed axis permutations of the up vector and pick the one with vertical trees and a straight horizon.
+**R.** (a) R(q)ᵀ·ẑ = (0.639, 0.321, 0.699) vs. −acc = (0.639, 0.367, 0.676): consistent, so R maps IMU → world. (b) Exactly one candidate is level: **body = (−imu_y, −imu_x, imu_z)**. The map has det = −1 (a reflection), which is harmless because only directions are mapped.
+**C.** Horizon levelling from metadata alone, no image analysis; heading follows a 1 s moving average of the forward vector.
+**Reproduce.** `samples/grid.jpg` generation in the session notes; `osvcut.body_frames`.
+
+## E3 — Root causes of visible seams and ghosting
+
+**Q.** Why does a calibrated stitch still show seams and ghosts?
+**M.** Unwrap both lenses along the seam band (±8° around the body y = 0 plane, 0.1°/px), Farneback flow between them per 15° azimuth block, luminance ratio per block (`seamdiag.py`).
+**R.**
+- Far content (ridges, clouds) aligns: calibration is correct at infinity.
+- Misalignment median 0.77–0.85°, max 2.7° — all maxima on near objects (hand on the stick, people < 1 m). Calibration has rotation only, no inter-lens translation ⇒ **parallax**. DJI's "stitching distance" presets (0.7–1.6 m) differ only by ~0.2 % in focal length.
+- **Exposure/colour mismatch**: slave/master luminance ratio 0.53–1.40 per azimuth (H, backlit).
+- **Occlusion**: the 14-point polygon traces the camera body / handle at the bottom of both images; usable radius drops to ~91.5° there, and both lenses' occluded sectors face the same direction ⇒ overlap shrinks from ~10° to ~1° on the handle side. The occlusion edge is a 1–2° soft dark gradient.
+- **Vignetting refuted**: the median radial luminance profile of H is flat (±4 %) out to 96°.
+**C.** Four causes: parallax (physical), wide crossfade turning misalignment into ghosts, dark occlusion edge blended in, inter-lens exposure mismatch.
+**Reproduce.** `python seamdiag.py <clip> <t> <tag>`.
+
+## E4 — Smart seam (masks + gains + DP cut)
+
+**M.** (1) Validity mask per lens = image circle (96.5°) ∩ coded frame ∩ inside the occlusion arc, eroded 1° and feathered; rays outside are clamped to the usable edge (blind-zone fill). (2) Per-azimuth (5° bins) slave/master ratio in linear light on the overlap, circularly smoothed, temporally EMA'd; global part applied to the whole hemisphere, local part faded out by 45° from the seam. (3) Min-cost closed path through a ±4° band (colour + gradient difference, invalid-pixel penalty, centre prior, temporal term), 1° blend.
+**R.** Semi-transparent ghosts, dark smears and the sky step disappear; near objects crossing the seam are now *cut / duplicated* instead of ghosted. Update 10 ms, render 48 ms per 3840×1920 frame.
+
+## E5 — Optical-flow morphing; DIS vs. Farneback on seam strips
+
+**Q.** Can parallax be absorbed by warping both lenses toward each other across a transition zone?
+**M.** Flow F between the two lens strips (A(p) ≈ B(p+F)); output at transition t∈[0,1]: A sampled at p − tF, B at p + (1−t)F, blended (1−t)/t. Forward–backward consistency → confidence; normalised convolution fills low-confidence areas; |F| ≤ 4°.
+**R.** With OpenCV **DIS** (any preset) the flow had a systematic +2.2 to +3.4° across-seam bias on 90–120-row strips, even on clouds, producing streaks. **Farneback** on the same strips: 0.15–0.52° median on far content, as expected. With Farneback: no streaks; walking people stay single; hands are continuous.
+**C.** Use Farneback for narrow strips (DIS's coarse-to-fine pyramid is unreliable when one image dimension is tiny).
+**Reproduce.** `compare_seam.py`, debug in session notes (`_dbg_flow2.py`).
+
+## E6 — Overlap-adaptive transition
+
+**Q.** Residual streak near the handle side.
+**M.** Coverage map (`tools_coverage.py`): which lens is valid per output pixel.
+**R.** No blind zone on Y, but the both-valid band is ~1° wide on the handle side vs ~10° elsewhere. A fixed ±3° ramp pushed warped rays into invalid areas. Fix: per-azimuth overlap interval [lo, hi] from the masks; ramp centred in it with half-width min(3°, (hi−lo)/2); flow scaled by the available half-width.
+**C.** The walking person on the handle side is restored except for a small arm streak.
+
+## E7 — A seam flicker metric needs a no-seam reference
+
+**Q.** Do the new seams flicker?
+**M.** Ratio of mean |frame difference| inside |β|<2.5° to that in −12°<β<−5° (same side, same frames), on 300 frames of Y. Reference: a render from the slave lens only (no seam at all).
+**R.**
+
+| Method | Flicker ratio |
+|---|---|
+| Single lens, no seam (reference) | 1.519 |
+| Legacy 12° crossfade | 1.155 |
+| Smart cut | 1.516 |
+| Flow morph (0.1°) | 1.422 |
+| Flow morph (0.2°, current) | 1.402 |
+
+Stronger temporal smoothing did not change the numbers (1.341 / 1.247).
+**C.** The legacy value is *below* the reference because ghosting low-passes the seam band, not because it is stable. Against the proper reference, neither new method adds flicker. Always report seam metrics relative to a single-lens reference.
+**Reproduce.** `tools_flicker.py <clip> <videos…>`.
+
+## E8 — Flow resolution vs. speed
+
+**R.** Flow strip at 0.2°/px instead of 0.1°/px and skipping the unused DP: update 141 → 29 ms/frame, no visible difference on Y or H. Full flow render ≈ 0.13 s/frame at 3840×1920 (contended GPU).
+
+## E9 — Rolling shutter is not a factor (negative result)
+
+**Q.** Does seam misalignment grow with angular speed (rolling-shutter mismatch between the two sensors)?
+**M.** 40 frames across H; median and p90 |flow| over confident overlap pixels vs. IMU angular speed (±5 frames).
+**R.** Speeds 5.5–532.6 °/s; median flow 0.04–0.21°; Pearson r = 0.09; slope ≈ 0.0000° per °/s.
+**C.** The two sensors are effectively synchronised in readout; no RS correction is needed for the seam.
+**Reproduce.** `python tools_rs_probe.py <clip> 40`.
+
+## E10 — Subject following on stitched views
+
+**M.** Render a rectilinear view (fov = 3× the subject box, 35–100°) around the subject each frame with the same levelling as exports; OpenCV MIL tracker (no external weights); re-aim and re-initialise when the box centre leaves the central 36 %; smooth 0.6 s; keyframes every 0.25 s with linear easing.
+**R.** H 43.5→49 s: subject stays boxed through partial occlusion by another person's hand; 5.5 s of footage tracked in 8.5 s.
+**Open.** Quantitative tracking accuracy needs annotated boxes.
+
+---
+
+## Open questions / next experiments
+
+1. Ghosting metric that rewards single, sharp structure in the transition band (e.g. max SSIM to either single-lens render) for a multi-clip benchmark.
+2. Multi-clip evaluation protocol: ≥ 20 clips × 30 frames, methods {legacy, smart, flow}, metrics {ghost, flicker, exposure step, runtime}; DJI Studio exports as an external baseline if available.
+3. Near-field parallax on the handle side (1° overlap): depth-aware or temporal fill.
+4. Tracking accuracy benchmark.
