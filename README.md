@@ -78,6 +78,8 @@ Example spec:
 | `viewer/index.html` | Browser studio (single file, WebGL2) |
 | `bezel.py`, `seamdiag.py`, `compare_seam.py`, `tools_*.py` | Research / diagnostics |
 | `REPORT.md` | Research notes (Chinese) |
+| `docs/使用指南.md` | Studio user guide (Chinese) |
+| `docs/RESEARCH_LOG.md` | Experiment log E1–E20 |
 
 ## Acknowledgements
 
