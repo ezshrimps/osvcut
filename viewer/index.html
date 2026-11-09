@@ -790,8 +790,20 @@ if('requestVideoFrameCallback' in HTMLVideoElement.prototype){
 }
 
 /* main loop */
+let _lastSig='', _lastDraw=0; window.FRAME_STATS={drawn:0,skipped:0};
+function frameSig(){   // everything the picture, minimap, timeline and HUD depend on
+  const g=gradeVals();
+  return [state.yaw.toFixed(3),state.pitch.toFixed(3),state.hfov.toFixed(2),state.dist.toFixed(3),(vid.currentTime||0).toFixed(3),vid.paused,
+    canvas.width,canvas.height,tl.clientWidth,$('nadirSel')?.value,state.grid,state.seamViz,state.noMorph,state.old,state.follow,g.exposure,g.contrast,g.saturation,g.temperature,
+    state.keys.length?JSON.stringify(state.keys):'',state.inP,state.outP,!!state.tx,!!state.motion,!!RIG,state.clip&&state.clip.src,stillImg&&stillImg.src,
+    miniImg&&miniImg.complete,document.activeElement&&document.activeElement.id].join('|');
+}
 function frame(){
   if(state.follow&&state.keys.length&&!drag){const k=interpKeys(vid.currentTime);if(k){state.yaw=k.yaw;state.pitch=k.pitch;state.hfov=k.fov;state.dist=k.dist||0;}}
+  // on-demand drawing: nothing changed and the video is paused -> skip (forced refresh every 500 ms as a safety net)
+  const sig=frameSig(), now=performance.now();
+  if(sig===_lastSig&&vid.paused&&!frameDirty&&now-_lastDraw<500){FRAME_STATS.skipped++;requestAnimationFrame(frame);return}
+  _lastSig=sig; _lastDraw=now; FRAME_STATS.drawn++;
   if(stillImg){ if(frameDirty&&stillImg.complete&&stillImg.naturalWidth){gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,stillImg);frameDirty=false;} }
   else if(vid.readyState>=2&&(frameDirty||!vid.paused)){gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,vid);frameDirty=false;$('loading').style.display='none';}
   gl.viewport(0,0,canvas.width,canvas.height);
