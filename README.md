@@ -72,6 +72,7 @@ claude mcp add osvcut -- python /path/to/osvcut/mcp_server.py
 | Tool | What the assistant gets |
 |---|---|
 | `list_clips` | search the library (event, file, date, duration, mode) |
+| `search_speech` | find clips and times by what is said (batch Whisper transcripts) |
 | `clip_overview` | levelled 360 contact sheet (image) + transcript + camera motion + suggested segments |
 | `look` | a rendered view at any time and direction (or a little-planet overview) — the assistant can look around |
 | `track_subject` | follow a person from (t0, yaw, pitch) → camera keyframes |
