@@ -292,6 +292,13 @@ Temporal (E16 protocol, 8 clips, corrected scale): excess flicker vs single-lens
 **R.** CD 0.052 / 0.045 / 0.039 / **0.035** / 0.037; edge-hard 0.059 / 0.093 / 0.085 / **0.075** / 0.094. k = 1 beats 0.75 on CD 40/40 and edge 26/40 (p ≤ 0.001), and 1.25 on CD 38/40 and edge 34/40 (p < 1e-7).
 **C.** No compromise exists along this axis: a partial warp leaves two half-aligned copies of an edge, an over-warp creates new ones. Both metrics peak at the measured displacement, which also validates the flow's magnitude under the corrected scale. Default stays k = 1; the remaining edge cost versus the cut is the price of morphing, not of a mis-scaled flow.
 
+## E34 — Gating small displacements (negative result)
+
+**Q.** If the warp's edge cost came from noisy small flows, not warping displacements below a threshold should cut it at little CD cost.
+**M.** `FlowStitch(gate=τ)`: smooth gate on |F| from τ/2 to τ; τ ∈ {0, 0.1, 0.2, 0.4}°; 10 clips × 4 frames (`results/e34_gate.json`).
+**R.** CD 0.0345 / 0.0346 / 0.0355 / 0.0404; edge-hard 0.0750 / 0.0743 / 0.0737 / 0.0719 (edge gains ≤ 0.003, p ≈ 0.02; CD losses up to 0.006, 40/40).
+**C.** Not adopted (option kept, default 0). The edge cost is not noise on small flows; it sits where the displacement is large, i.e. where morphing real near-field parallax inevitably stretches content. Together with E33, the flow seam's edge cost is intrinsic to morphing.
+
 ---
 
 ## Open questions / next experiments
