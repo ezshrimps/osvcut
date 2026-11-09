@@ -80,6 +80,14 @@ def list_clips(query="", category="", limit=30):
     return [_text("\n".join(lines))]
 
 
+def search_speech(query, limit=30):
+    r = _get("/api/search?" + urllib.parse.urlencode({"q": query}))
+    lines = [f"{len(r['hits'])} matches for '{query}' (transcripts available for {r['transcribed']} of {r['with_audio']} clips with audio)."]
+    for h in r["hits"][:limit]:
+        lines.append(f"{h['clip']} | {h.get('event', '')} | {h['name']} | {h['start']:.1f}-{h['end']:.1f}s | {h['text']}")
+    return [_text(chr(10).join(lines))]
+
+
 def _suggest(motion, tx, dur):
     S = []
     if tx and tx.get("segments"):
@@ -237,6 +245,8 @@ TOOLS = {
     "list_clips": (list_clips, "Search the 360 footage library (DJI Osmo 360 .OSV). Returns id | event | file | duration | shot time | mode | flags.",
                    {"query": {"type": "string", "description": "substring of event folder, file name or date"},
                     "category": {"type": "string"}, "limit": {"type": "integer", "default": 30}}, []),
+    "search_speech": (search_speech, "Find clips by what is said in them (speech transcripts). Returns clip id, time range and the sentence.",
+                      {"query": {"type": "string"}, "limit": {"type": "integer", "default": 30}}, ["query"]),
     "clip_overview": (clip_overview, "Understand a clip: levelled 360 contact sheet (image), speech transcript, camera motion and suggested segments.",
                       {"clip_id": {"type": "string"}, "frames": {"type": "integer", "default": 6}}, ["clip_id"]),
     "look": (look, "Render what a virtual camera sees at time t looking at (yaw, pitch) with field of view fov; little_planet=true for a stereographic overview.",

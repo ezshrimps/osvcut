@@ -279,8 +279,10 @@ body.bt .btview .btpair img{cursor:default}
         <div class="chips" id="cats"></div>
         <select id="sort"><option value="new">最新拍摄</option><option value="old">最早拍摄</option><option value="long">时长最长</option></select>
         <label class="check" style="margin:0"><input type="checkbox" id="onlyPrev"> 只看有预览</label>
+        <button class="btn" id="txAll" title="给所有带音频的片段做语音转写，之后可以按台词搜索">转写全部素材</button>
         <span class="libstat" id="libstat"></span>
       </div>
+      <div id="speechHits"></div>
       <div id="groups"></div>
     </div>
   </main>
@@ -846,7 +848,22 @@ function renderLibrary(){
     toast(`已加入 ${todo.length} 个实时预览任务`); pollJobs();});
   $('groups').querySelectorAll('.card').forEach(b=>b.onclick=()=>{const c=LIB.clips.find(x=>x.id===b.dataset.id);setTab('360');loadClip(libToClip(c))});
 }
-$('q').oninput=e=>{libState.q=e.target.value;renderLibrary()};
+let speechT=null;
+$('q').oninput=e=>{libState.q=e.target.value;renderLibrary();clearTimeout(speechT);speechT=setTimeout(searchSpeech,300)};
+async function searchSpeech(){
+  const q=libState.q.trim(), box=$('speechHits');
+  if(q.length<2){box.innerHTML='';return}
+  let r; try{r=await (await fetch('/api/search?q='+encodeURIComponent(q))).json()}catch{return}
+  if(q!==libState.q.trim()) return;
+  const cov=`（已转写 ${r.transcribed}/${r.with_audio} 段）`;
+  box.innerHTML=r.hits.length?`<div class="group"><h3>台词匹配 <small>${r.hits.length} 处 ${cov}</small></h3><div class="tx" style="max-height:260px">`+
+    r.hits.map((h,i)=>`<div data-i="${i}"><b>${fmtDur(h.start)}</b><span>${esc(h.text)} <span class="minicap">· ${esc((h.event||'').split(' / ').pop())} · ${esc(h.name.replace(/^CAM_/,'').replace(/_D\.OSV$/i,''))}</span></span></div>`).join('')+'</div></div>'
+    :`<div class="group"><p class="empty">台词里没有找到“${esc(q)}”${cov}</p></div>`;
+  box.querySelectorAll('div[data-i]').forEach(d=>d.onclick=async()=>{const h=r.hits[+d.dataset.i]; const c=LIB.clips.find(x=>x.id===h.clip); if(!c) return;
+    setTab('360'); await loadClip(libToClip(c));
+    const go=()=>{if(vid.readyState>=1){vid.currentTime=Math.max(0,h.start-0.3);vid.play().catch(()=>{})} else setTimeout(go,300)}; go();});
+}
+$('txAll').onclick=async()=>{const r=await (await fetch('/api/transcribe_all',{method:'POST'})).json(); toast(r.queued?`已加入 ${r.queued} 个转写任务（在「成片 & 任务」看进度）`:'所有带音频的片段都已转写'); pollJobs()};
 $('sort').onchange=e=>{libState.sort=e.target.value;renderLibrary()};
 $('onlyPrev').onchange=e=>{libState.onlyPrev=e.target.checked;renderLibrary()};
 

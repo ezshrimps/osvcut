@@ -233,6 +233,26 @@ class Handler(RangeHandler):
                 j = new_job("transcript", f"{c['name']} · 语音转写", None, c["id"],
                             cmd=[sys.executable, "-u", "analysis.py", "transcript", c["path"], out], output=out)
             return self._json(dict(status=j["status"], job=j["id"], progress=j["progress"]))
+        if p == "/api/search":
+            from urllib.parse import parse_qs
+            q = (parse_qs(u.query).get("q", [""])[0] or "").strip().lower()
+            hits = []
+            if q:
+                for c in LIB.listing():
+                    tp = analysis.transcript_path(c["id"])
+                    if not os.path.exists(tp):
+                        continue
+                    try:
+                        segs = json.load(open(tp, encoding="utf8")).get("segments", [])
+                    except Exception:
+                        continue
+                    for sg in segs:
+                        if q in sg["text"].lower():
+                            hits.append(dict(clip=c["id"], name=c["name"], event=c.get("event"), start=sg["start"],
+                                             end=sg["end"], text=sg["text"]))
+            done = sum(1 for c in LIB.clips.values() if os.path.exists(analysis.transcript_path(c["id"])))
+            todo = sum(1 for c in LIB.clips.values() if c.get("audio") and c.get("duration", 0) > 1)
+            return self._json(dict(q=q, hits=hits[:200], transcribed=done, with_audio=todo))
         if p == "/api/storage":
             def size(d, ext=None):
                 tot, n = 0, 0
@@ -414,6 +434,16 @@ class Handler(RangeHandler):
                 except OSError:
                     pass
             return self._json({"ok": True, "removed": removed})
+        if p == "/api/transcribe_all":
+            queued = 0
+            busy = {j["clip"] for j in JOBS.values() if j["kind"] == "transcript" and j["status"] in ("queued", "running")}
+            for c in LIB.listing():
+                out = analysis.transcript_path(c["id"])
+                if c.get("audio") and c.get("duration", 0) > 1 and not os.path.exists(out) and c["id"] not in busy:
+                    new_job("transcript", f"{c['name']} · 语音转写", None, c["id"],
+                            cmd=[sys.executable, "-u", "analysis.py", "transcript", c["path"], out], output=out)
+                    queued += 1
+            return self._json({"ok": True, "queued": queued})
         if p == "/api/rescan":
             threading.Thread(target=LIB.scan, daemon=True).start()
             return self._json({"ok": True})
