@@ -255,7 +255,7 @@ class FlowStitch(SmartStitch):
     near objects stay single and continuous instead of doubling or being cut."""
 
     def __init__(self, cal, lenses, device="cuda", fband=4.5, fres=0.2, ramp=1.5, flow_ema=0.5,
-                 max_flow=4.0, center="dp", **kw):
+                 max_flow=4.0, center="dp", ss=1, **kw):
         super().__init__(cal, lenses, device=device, **kw)
         self.do_dp = False
         self.center = center          # "overlap": ramp centred in the overlap; "dp": on the min-disagreement path
@@ -266,6 +266,13 @@ class FlowStitch(SmartStitch):
         B, A = torch.meshgrid(b, a, indexing="ij")
         self.fstrip = torch.stack([torch.cos(B) * torch.cos(A), torch.sin(B), torch.cos(B) * torch.sin(A)], -1)
         self.fH, self.fW = self.fstrip.shape[:2]
+        self.ss = int(ss)              # supersampling of the flow strip (anti-aliasing), 1 = off
+        if self.ss > 1:
+            r2 = fres / self.ss
+            a2 = (torch.arange(0, 360, r2, device=device) + r2 * (self.ss - 1) / 2) * math.pi / 180
+            b2 = (torch.arange(self.fH * self.ss, device=device) * -r2 + fband + r2 * (self.ss - 1) / 2) * math.pi / 180
+            B2, A2 = torch.meshgrid(b2, a2, indexing="ij")
+            self.fstrip_ss = torch.stack([torch.cos(B2) * torch.cos(A2), torch.sin(B2), torch.cos(B2) * torch.sin(A2)], -1)
         self.flow = None      # (2, fH, fW) in degrees: (d_alpha, d_beta), A(p) ~ B(p + F)
         self.last_conf = None
 
@@ -276,8 +283,14 @@ class FlowStitch(SmartStitch):
 
     def update(self, imgs):
         super().update(imgs)                       # gains (+ DP path, kept for diagnostics)
-        cA, mA = self._sample(0, imgs[0], self.fstrip)
-        cB, mB = self._sample(1, imgs[1], self.fstrip)
+        if self.ss > 1:
+            pool = lambda x: F.avg_pool2d(x[None] if x.dim() == 3 else x[None, None], self.ss)[0] if x.dim() == 3                 else F.avg_pool2d(x[None, None], self.ss)[0, 0]
+            cA, mA = self._sample(0, imgs[0], self.fstrip_ss)
+            cB, mB = self._sample(1, imgs[1], self.fstrip_ss)
+            cA, cB, mA, mB = pool(cA), pool(cB), pool(mA), pool(mB)
+        else:
+            cA, mA = self._sample(0, imgs[0], self.fstrip)
+            cB, mB = self._sample(1, imgs[1], self.fstrip)
         logr = torch.tensor(self.logr, dtype=torch.float32, device=self.dev)
         pos = (torch.arange(self.fW, device=self.dev) * self.fres) / 360 * self.nb - 0.5
         lr = _circ_interp(logr, pos % self.nb)[:, None, :]

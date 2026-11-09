@@ -47,6 +47,8 @@ def make_engine(name, cal, lenses):
         opts["center"] = "dp"
     elif name == "flow_dp_r15":
         opts.update(center="dp", ramp=1.5)
+    elif name == "flow_dp_r15_aa":
+        opts.update(center="dp", ramp=1.5, ss=2)
     return FlowStitch(cal, lenses, **opts)
 
 
@@ -152,7 +154,9 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--root", default=r"E:\Videos")
     ap.add_argument("--out", default="results/seam_bench.json")
+    ap.add_argument("--methods", default=",".join(METHODS))
     a = ap.parse_args()
+    METHODS[:] = a.methods.split(",")
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     lib = libmod.Library([a.root])
     if not lib.clips:

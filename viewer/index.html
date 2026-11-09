@@ -119,6 +119,7 @@ body.lib .libview{display:block}
 .libbar select{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
 .group{padding:16px 20px 4px}
 .group h3{margin:0 0 10px;font-size:14px;font-weight:600;display:flex;align-items:baseline;gap:10px}
+.grpbtn{margin-left:auto;font-size:11px;padding:3px 9px}
 .group h3 small{color:var(--dim);font-weight:400;font-size:12px;font-family:var(--mono)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
 .card{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;text-align:left;padding:0;transition:border-color .15s,transform .15s}
@@ -787,7 +788,8 @@ function renderLibrary(){
   for(const c of list){const k=libState.sort==='long'?'按时长':(c.event||'未分类');if(!groups.has(k))groups.set(k,[]);groups.get(k).push(c)}
   const html=[];
   for(const [k,cs] of groups){
-    html.push(`<div class="group"><h3>${esc(k)} <small>${cs.length} 段 · ${fmtDur(cs.reduce((a,c)=>a+(c.duration||0),0))}</small></h3><div class="grid">`);
+    const need=cs.filter(c=>!c.proxy&&!Object.keys(c.previews||{}).length&&c.duration>0&&!proxyJobFor(c.id)).length;
+    html.push(`<div class="group"><h3>${esc(k)} <small>${cs.length} 段 · ${fmtDur(cs.reduce((a,c)=>a+(c.duration||0),0))}</small>${need?`<button class="btn grpbtn" data-grp="${esc(k)}">全部生成实时预览（${need} 段）</button>`:''}</h3><div class="grid">`);
     for(const c of cs){
       const j=jobFor(c.id), has=Object.keys(c.previews||{}).length;
       html.push(`<button class="card" data-id="${c.id}"><div class="th" data-src="${c.thumb}"><div class="ph">${c.duration>0?'生成缩略图…':'无法读取'}</div><i></i>
@@ -799,6 +801,10 @@ function renderLibrary(){
   }
   $('groups').innerHTML=html.join('')||'<div class="group"><p class="empty">没有匹配的素材</p></div>';
   $('groups').querySelectorAll('.th').forEach(el=>thumbObs.observe(el));
+  $('groups').querySelectorAll('.grpbtn').forEach(b=>b.onclick=async ev=>{ev.stopPropagation(); const cs=groups.get(b.dataset.grp)||[];
+    const todo=cs.filter(c=>!c.proxy&&!Object.keys(c.previews||{}).length&&c.duration>0&&!proxyJobFor(c.id));
+    for(const c of todo){await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'proxy',clip:c.id})})}
+    toast(`已加入 ${todo.length} 个实时预览任务`); pollJobs();});
   $('groups').querySelectorAll('.card').forEach(b=>b.onclick=()=>{const c=LIB.clips.find(x=>x.id===b.dataset.id);setTab('360');loadClip(libToClip(c))});
 }
 $('q').oninput=e=>{libState.q=e.target.value;renderLibrary()};
