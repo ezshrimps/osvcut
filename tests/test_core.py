@@ -415,25 +415,46 @@ def test_flow_interpolation_moving_texture():
 def test_face_track_follows_detections():
     import director
     keys = [dict(t=0.0, yaw=-100.0, pitch=20.0, fov=100.0), dict(t=4.0, yaw=-100.0, pitch=20.0, fov=90.0)]
-    real_dir, real_path = director.face_direction, director.YUNET
+    real_dir, real_path = director.face_candidates, director.YUNET
     calls = []
 
     def fake(clip, t, yaw, pitch, fov=130.0, n=640):
         calls.append(t)
-        return dict(yaw=30.0, pitch=10.0, size=12.0) if len(calls) % 2 else None   # seen on every other probe
+        return [dict(yaw=30.0, pitch=10.0, size=12.0, off=0.1, talk=None)] if len(calls) % 2 else []
 
     try:
-        director.face_direction, director.YUNET = fake, __file__                # any existing file stands in
+        director.face_candidates, director.YUNET = fake, __file__               # any existing file stands in
         fk = director.face_track({}, keys, 0.0, (1920, 1080))
         assert fk and fk[0]["t"] == 0.0 and abs(fk[-1]["t"] - 4.0) < 1e-6
         for k in fk:                                     # every key ends up on the face, eye line above centre
             assert abs(k["yaw"] - 30.0) < 1.0, k
             vfov = math.degrees(2 * math.atan(math.tan(math.radians(k["fov"]) / 2) * 1080 / 1920))
             assert abs(k["pitch"] - (10.0 - 0.12 * vfov)) < 1.0, k
-        director.face_direction = lambda *a, **kw: None
+        director.face_candidates = lambda *a, **kw: []
         assert director.face_track({}, keys, 0.0, (1920, 1080)) is None    # no face: keep the IMU keys
     finally:
-        director.face_direction, director.YUNET = real_dir, real_path
+        director.face_candidates, director.YUNET = real_dir, real_path
+
+
+def test_pick_speaker_follows_the_moving_mouth():
+    import director
+    holder = dict(yaw=0.0, pitch=10.0, size=30.0, off=0.05, talk=1.0)
+    friend = dict(yaw=60.0, pitch=5.0, size=20.0, off=0.6, talk=3.0)
+    f, pend = director.pick_speaker([holder, friend], None, 0)
+    assert f is friend and pend == 0                    # first probe: the talking face at once
+    f, pend = director.pick_speaker([dict(holder, talk=3.0), dict(friend, talk=1.0)], (60.0, 5.0), 0)
+    assert f["yaw"] == 60.0 and pend == 1               # one probe of the holder talking: hold on the friend
+    f, pend = director.pick_speaker([dict(holder, talk=3.0), dict(friend, talk=1.0)], (60.0, 5.0), pend)
+    assert f["yaw"] == 0.0 and pend == 0                # two in a row: cut over to the holder
+    f, pend = director.pick_speaker([dict(holder, talk=1.1), dict(friend, talk=1.2)], (0.0, 10.0), 0)
+    assert f["yaw"] == 0.0                              # nobody clearly talking: stay
+    f, _ = director.pick_speaker([dict(holder, talk=None), dict(friend, talk=None)], None, 0)
+    assert f["yaw"] == 0.0                              # no motion measured: the face nearest the holder guess
+    grey = [np.zeros((100, 100), np.float32) for _ in range(3)]
+    for i, g in enumerate(grey):                        # mouth flickers, eyes still
+        g[60:70, 40:60] = 80.0 * (i % 2)
+    face = [30, 20, 40, 60, 42, 40, 58, 40, 50, 52, 44, 62, 56, 62, 0.9]
+    assert director.mouth_motion(grey, face) > 10
 
 
 # ---------------------------------------------------------------- runner

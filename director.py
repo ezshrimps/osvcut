@@ -19,9 +19,11 @@ EW, EH = 512, 256                          # interest map: equirect resolution
 
 
 def base_fov(size):
-    """Horizontal field of view of a 'normal' shot for the output aspect."""
+    """Horizontal field of view of a 'normal' shot for the output aspect.  Wide on purpose: a 4K-mode lens gives
+    only ~9 px per degree, so 1920 px over 84 deg is a 2x upscale (soft); 105 deg (16:9) and 80 deg (9:16, 1080 px
+    wide) keep it near 1.3x while the horizon still looks natural."""
     w, h = size
-    return 84.0 if w >= h else 58.0
+    return 105.0 if w >= h else 80.0
 
 
 def interest_map(clip, t):
@@ -90,9 +92,9 @@ def scenery_keys(a, size, d, prev_move=None, pan_dir=1):
         span = min(36.0, 8.0 * d)                            # <= 8 deg/s
         k0, k1 = dict(yaw=y - s * span / 2, pitch=p, fov=f), dict(yaw=y + s * span / 2, pitch=p, fov=f)
     elif move == "push":
-        k0, k1 = dict(yaw=y, pitch=p, fov=f * 1.18), dict(yaw=y, pitch=p, fov=f * 0.85)
+        k0, k1 = dict(yaw=y, pitch=p, fov=f * 1.1), dict(yaw=y, pitch=p, fov=f * 0.92)
     elif move == "pull":
-        k0, k1 = dict(yaw=y, pitch=p, fov=f * 0.85), dict(yaw=y, pitch=p, fov=f * 1.18)
+        k0, k1 = dict(yaw=y, pitch=p, fov=f * 0.92), dict(yaw=y, pitch=p, fov=f * 1.1)
     else:                                                    # tilt up: reveal something tall
         k0, k1 = dict(yaw=y, pitch=max(-25.0, p - 18), fov=f), dict(yaw=y, pitch=min(35.0, p + 6), fov=f)
     return move, [dict(t=0.0, **k0), dict(t=round(d, 3), **k1)]
@@ -103,7 +105,8 @@ _yunet = {}
 
 
 def detect_faces(bgr, score=0.7):
-    """Faces in a BGR image with OpenCV's YuNet: [(x, y, w, h, score)], biggest first.  [] without the model."""
+    """Faces in a BGR image with OpenCV's YuNet, biggest first: rows of 15 numbers (x, y, w, h, right eye x/y,
+    left eye x/y, nose x/y, right / left mouth corner x/y, score).  [] without the model."""
     import cv2
     if not os.path.exists(YUNET):
         return []
@@ -115,56 +118,124 @@ def detect_faces(bgr, score=0.7):
     _, faces = det.detect(bgr)
     if faces is None:
         return []
-    out = [(float(f[0]), float(f[1]), float(f[2]), float(f[3]), float(f[14])) for f in faces]
-    return sorted(out, key=lambda f: -f[2] * f[3])
+    return sorted([[float(v) for v in f[:15]] for f in faces], key=lambda f: -f[2] * f[3])
 
 
-def face_direction(clip, t, yaw, pitch, fov=130.0, n=640):
-    """Look around (yaw, pitch) with a wide view and return the speaker's face as dict(yaw, pitch, size), size = the
-    face's angular height in degrees; None when no face is found."""
+def mouth_motion(grays, f):
+    """How much the mouth moves compared with the eyes over a few frames (grey images of the same view): a
+    speaking face scores well above 1, a silent one near 1, because head / camera motion moves both regions."""
+    def box(cx, cy, hw, hh):
+        H, W = grays[0].shape
+        x0, x1 = int(max(0, cx - hw)), int(min(W, cx + hw))
+        y0, y1 = int(max(0, cy - hh)), int(min(H, cy + hh))
+        if x1 - x0 < 2 or y1 - y0 < 2:
+            return 0.0
+        return float(np.mean([np.abs(b[y0:y1, x0:x1] - a[y0:y1, x0:x1]).mean() for a, b in zip(grays, grays[1:])]))
+    w, h = f[2], f[3]
+    mouth = box((f[10] + f[12]) / 2, (f[11] + f[13]) / 2 + 0.03 * h, 0.25 * w, 0.12 * h)
+    eyes = box((f[4] + f[6]) / 2, (f[5] + f[7]) / 2, 0.25 * w, 0.12 * h)
+    return mouth / (eyes + 1.0)
+
+
+def face_candidates(clip, t, yaw, pitch, fov=130.0, n=640, gap=0.12):
+    """Faces seen around (yaw, pitch) at time t: [dict(yaw, pitch, size, off, talk)], size = angular face height,
+    off = distance from the probe centre (0..1), talk = mouth motion (only measured when there are several faces:
+    two more frames at t -/+ gap are rendered for it)."""
     import torch
     import look
     from osvcut import view_dirs, cam_rot, dev
     C = torch.tensor(cam_rot(yaw, pitch), dtype=torch.float32, device=dev)
     d = view_dirs("flat", n, n, fov) @ C.T
-    img = look._render(clip["path"], t, d)
-    bgr = np.ascontiguousarray((img.clamp(0, 1) * 255).byte().permute(1, 2, 0).cpu().numpy()[:, :, ::-1])
+
+    def frame(tt):
+        img = look._render(clip["path"], tt, d)
+        return np.ascontiguousarray((img.clamp(0, 1) * 255).byte().permute(1, 2, 0).cpu().numpy()[:, :, ::-1])
+    bgr = frame(t)
     faces = detect_faces(bgr)
     if not faces:
-        return None
-    big = faces[0][2] * faces[0][3]                 # the speaker is the stick holder: of the bigger faces, the one
-    near = [f for f in faces if f[2] * f[3] >= 0.25 * big]   # nearest the IMU guess (centre), not the biggest
-    x, y, w, h, _ = min(near, key=lambda f: math.hypot(f[0] + f[2] / 2 - n / 2, f[1] + f[3] / 2 - n / 2))
-    v = d[int(min(n - 1, max(0, y + h / 2))), int(min(n - 1, max(0, x + w / 2)))].cpu().numpy()
-    top = d[int(max(0, y)), int(min(n - 1, max(0, x + w / 2)))].cpu().numpy()
-    fy = math.degrees(math.atan2(v[0], v[1]))
-    fp = math.degrees(math.asin(max(-1.0, min(1.0, float(v[2])))))
-    size = 2 * math.degrees(math.acos(max(-1.0, min(1.0, float(np.dot(v, top))))))
-    return dict(yaw=round(fy, 1), pitch=round(fp, 1), size=round(size, 1))
+        return []
+    big = faces[0][2] * faces[0][3]
+    faces = [f for f in faces if f[2] * f[3] >= 0.15 * big]       # ignore tiny faces in the background
+    grays = None
+    if len(faces) > 1:
+        import cv2
+        try:
+            grays = [cv2.cvtColor(im, cv2.COLOR_BGR2GRAY).astype(np.float32)
+                     for im in (frame(max(0.0, t - gap)), bgr, frame(t + gap))]
+        except Exception:                               # noqa: BLE001  (past the end of the clip)
+            grays = None
+    out = []
+    for f in faces:
+        x, y, w, h = f[:4]
+        v = d[int(min(n - 1, max(0, y + h / 2))), int(min(n - 1, max(0, x + w / 2)))].cpu().numpy()
+        top = d[int(min(n - 1, max(0, y))), int(min(n - 1, max(0, x + w / 2)))].cpu().numpy()
+        out.append(dict(yaw=round(math.degrees(math.atan2(v[0], v[1])), 1),
+                        pitch=round(math.degrees(math.asin(max(-1.0, min(1.0, float(v[2]))))), 1),
+                        size=round(2 * math.degrees(math.acos(max(-1.0, min(1.0, float(np.dot(v, top)))))), 1),
+                        off=round(math.hypot(x + w / 2 - n / 2, y + h / 2 - n / 2) / (n / 2), 3),
+                        talk=round(mouth_motion(grays, f), 3) if grays else None))
+    return out
+
+
+def _ang(a, b):
+    return math.hypot(_wrap(a[0] - b[0]) * math.cos(math.radians((a[1] + b[1]) / 2)), a[1] - b[1])
+
+
+def pick_speaker(cands, cur, pending, switch=1.6, hold=2, speaking=1.3):
+    """Choose the face to frame from one probe's candidates.  cur: direction (yaw, pitch) of the face framed so far
+    or None; pending: probes in a row in which another face talked more.  The framed face changes only when another
+    face's mouth moves clearly more (switch x, and above `speaking`) for `hold` probes in a row (immediately at the first probe), so the
+    camera follows the conversation without flicking between people.  Returns (face, pending)."""
+    if not cands:
+        return None, 0
+    if len(cands) == 1:
+        return cands[0], 0
+    inc = None
+    if cur:
+        near = min(cands, key=lambda c: _ang((c["yaw"], c["pitch"]), cur))
+        if _ang((near["yaw"], near["pitch"]), cur) < 30:
+            inc = near
+    if inc is None:                                     # nobody framed yet: the face nearest the holder guess
+        inc = min(cands, key=lambda c: c["off"])
+    talkers = [c for c in cands if c.get("talk") is not None]
+    if not talkers or inc.get("talk") is None:
+        return inc, 0
+    best = max(talkers, key=lambda c: c["talk"])
+    if best is not inc and best["talk"] > max(speaking, switch * inc["talk"]):
+        if cur is None or pending + 1 >= hold:
+            return best, 0
+        return inc, pending + 1
+    return inc, 0
 
 
 def face_track(clip, keys, t0, size, step=0.8, min_hits=0.5):
-    """Re-aim holder keys (shot time) onto the speaker's face: probe every `step` s around the IMU guess (or around
-    the last face seen), key the face direction itself, put the eye line a little above the centre and widen the
-    view when the face would fill the frame.  None when a face is seen in fewer than min_hits of the probes."""
+    """Re-aim holder keys (shot time) onto whoever is speaking: probe every `step` s around the face framed so
+    far (or the IMU guess of the selfie-stick holder), pick the speaker by mouth motion with hysteresis
+    (pick_speaker), key the face direction itself, put the eye line a little above the centre and widen the view
+    when the face would fill the frame.  None when a face is seen in fewer than min_hits of the probes."""
     if not keys or not os.path.exists(YUNET):
         return None
     d = keys[-1]["t"]
     n = max(2, int(round(d / step)) + 1)
     times = [d * i / (n - 1) for i in range(n)]
-    pts, last = [], None
+    pts, cur, pending, scans = [], None, 0, 0
     for ts in times:
         k = _at(keys, ts)
         f = None
-        for y, p in ([(k["yaw"], k["pitch"])] + ([last] if last else [])):
+        dirs = ([cur] if cur else []) + [(k["yaw"], k["pitch"])]
+        if cur is None and scans < 3:               # nobody found yet: also look the other three ways
+            scans += 1
+            dirs += [(_wrap(k["yaw"] + a), 10.0) for a in (90, 180, 270)]
+        for y, p in dirs:
             try:
-                f = face_direction(clip, t0 + min(ts, d - 0.05), y, p)
+                cands = face_candidates(clip, t0 + min(ts, d - 0.05), y, p)
             except Exception:                       # noqa: BLE001  (undecodable frame)
-                f = None
+                cands = []
+            f, pending = pick_speaker(cands, cur, pending)
             if f:
                 break
         if f:
-            last = (f["yaw"], f["pitch"])
+            cur = (f["yaw"], f["pitch"])
         pts.append((ts, k, f))
     hits = [f for _, _, f in pts if f]
     if len(hits) < min_hits * len(pts):
@@ -189,7 +260,7 @@ def face_track(clip, keys, t0, size, step=0.8, min_hits=0.5):
         fov = _at(keys, ts)["fov"]
         vfov = math.degrees(2 * math.atan(math.tan(math.radians(fov) / 2) * h / w))
         if fsize > 0.32 * vfov:                     # a face filling the frame: widen so head + shoulders fit
-            fov = min(110.0, fov * fsize / (0.32 * vfov))
+            fov = min(125.0, fov * fsize / (0.32 * vfov))
             vfov = math.degrees(2 * math.atan(math.tan(math.radians(fov) / 2) * h / w))
         out.append(dict(t=round(ts, 3), yaw=round(_wrap(float(y)), 1),
                         pitch=round(max(-60.0, min(80.0, float(p) - 0.12 * vfov)), 1), fov=round(fov, 1)))
@@ -202,7 +273,7 @@ def talk_keys(keys, size):
     n = len(keys)
     out = []
     for i, k in enumerate(keys):
-        out.append(dict(k, fov=round(f * (1.3 - 0.15 * i / max(1, n - 1)), 1)))
+        out.append(dict(k, fov=round(f * (1.08 - 0.08 * i / max(1, n - 1)), 1)))
     return out
 
 
