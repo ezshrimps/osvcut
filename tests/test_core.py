@@ -412,6 +412,30 @@ def test_flow_interpolation_moving_texture():
     assert e_flow < 0.3 * e_blend, (e_flow, e_blend)
 
 
+def test_face_track_follows_detections():
+    import director
+    keys = [dict(t=0.0, yaw=-100.0, pitch=20.0, fov=100.0), dict(t=4.0, yaw=-100.0, pitch=20.0, fov=90.0)]
+    real_dir, real_path = director.face_direction, director.YUNET
+    calls = []
+
+    def fake(clip, t, yaw, pitch, fov=130.0, n=640):
+        calls.append(t)
+        return dict(yaw=30.0, pitch=10.0, size=12.0) if len(calls) % 2 else None   # seen on every other probe
+
+    try:
+        director.face_direction, director.YUNET = fake, __file__                # any existing file stands in
+        fk = director.face_track({}, keys, 0.0, (1920, 1080))
+        assert fk and fk[0]["t"] == 0.0 and abs(fk[-1]["t"] - 4.0) < 1e-6
+        for k in fk:                                     # every key ends up on the face, eye line above centre
+            assert abs(k["yaw"] - 30.0) < 1.0, k
+            vfov = math.degrees(2 * math.atan(math.tan(math.radians(k["fov"]) / 2) * 1080 / 1920))
+            assert abs(k["pitch"] - (10.0 - 0.12 * vfov)) < 1.0, k
+        director.face_direction = lambda *a, **kw: None
+        assert director.face_track({}, keys, 0.0, (1920, 1080)) is None    # no face: keep the IMU keys
+    finally:
+        director.face_direction, director.YUNET = real_dir, real_path
+
+
 # ---------------------------------------------------------------- runner
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

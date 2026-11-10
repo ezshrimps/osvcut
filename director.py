@@ -11,6 +11,7 @@ Rules taken from how 360 footage is usually reframed by hand (DJI Studio / Insta
   day or the part of the day changes.
 """
 import math
+import os
 
 import numpy as np
 
@@ -95,6 +96,104 @@ def scenery_keys(a, size, d, prev_move=None, pan_dir=1):
     else:                                                    # tilt up: reveal something tall
         k0, k1 = dict(yaw=y, pitch=max(-25.0, p - 18), fov=f), dict(yaw=y, pitch=min(35.0, p + 6), fov=f)
     return move, [dict(t=0.0, **k0), dict(t=round(d, 3), **k1)]
+
+
+YUNET = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "face_detection_yunet_2023mar.onnx")
+_yunet = {}
+
+
+def detect_faces(bgr, score=0.7):
+    """Faces in a BGR image with OpenCV's YuNet: [(x, y, w, h, score)], biggest first.  [] without the model."""
+    import cv2
+    if not os.path.exists(YUNET):
+        return []
+    h, w = bgr.shape[:2]
+    if "d" not in _yunet:
+        _yunet["d"] = cv2.FaceDetectorYN.create(YUNET, "", (w, h), score, 0.3, 50)
+    det = _yunet["d"]
+    det.setInputSize((w, h))
+    _, faces = det.detect(bgr)
+    if faces is None:
+        return []
+    out = [(float(f[0]), float(f[1]), float(f[2]), float(f[3]), float(f[14])) for f in faces]
+    return sorted(out, key=lambda f: -f[2] * f[3])
+
+
+def face_direction(clip, t, yaw, pitch, fov=130.0, n=640):
+    """Look around (yaw, pitch) with a wide view and return the speaker's face as dict(yaw, pitch, size), size = the
+    face's angular height in degrees; None when no face is found."""
+    import torch
+    import look
+    from osvcut import view_dirs, cam_rot, dev
+    C = torch.tensor(cam_rot(yaw, pitch), dtype=torch.float32, device=dev)
+    d = view_dirs("flat", n, n, fov) @ C.T
+    img = look._render(clip["path"], t, d)
+    bgr = np.ascontiguousarray((img.clamp(0, 1) * 255).byte().permute(1, 2, 0).cpu().numpy()[:, :, ::-1])
+    faces = detect_faces(bgr)
+    if not faces:
+        return None
+    big = faces[0][2] * faces[0][3]                 # the speaker is the stick holder: of the bigger faces, the one
+    near = [f for f in faces if f[2] * f[3] >= 0.25 * big]   # nearest the IMU guess (centre), not the biggest
+    x, y, w, h, _ = min(near, key=lambda f: math.hypot(f[0] + f[2] / 2 - n / 2, f[1] + f[3] / 2 - n / 2))
+    v = d[int(min(n - 1, max(0, y + h / 2))), int(min(n - 1, max(0, x + w / 2)))].cpu().numpy()
+    top = d[int(max(0, y)), int(min(n - 1, max(0, x + w / 2)))].cpu().numpy()
+    fy = math.degrees(math.atan2(v[0], v[1]))
+    fp = math.degrees(math.asin(max(-1.0, min(1.0, float(v[2])))))
+    size = 2 * math.degrees(math.acos(max(-1.0, min(1.0, float(np.dot(v, top))))))
+    return dict(yaw=round(fy, 1), pitch=round(fp, 1), size=round(size, 1))
+
+
+def face_track(clip, keys, t0, size, step=0.8, min_hits=0.5):
+    """Re-aim holder keys (shot time) onto the speaker's face: probe every `step` s around the IMU guess (or around
+    the last face seen), key the face direction itself, put the eye line a little above the centre and widen the
+    view when the face would fill the frame.  None when a face is seen in fewer than min_hits of the probes."""
+    if not keys or not os.path.exists(YUNET):
+        return None
+    d = keys[-1]["t"]
+    n = max(2, int(round(d / step)) + 1)
+    times = [d * i / (n - 1) for i in range(n)]
+    pts, last = [], None
+    for ts in times:
+        k = _at(keys, ts)
+        f = None
+        for y, p in ([(k["yaw"], k["pitch"])] + ([last] if last else [])):
+            try:
+                f = face_direction(clip, t0 + min(ts, d - 0.05), y, p)
+            except Exception:                       # noqa: BLE001  (undecodable frame)
+                f = None
+            if f:
+                break
+        if f:
+            last = (f["yaw"], f["pitch"])
+        pts.append((ts, k, f))
+    hits = [f for _, _, f in pts if f]
+    if len(hits) < min_hits * len(pts):
+        return None
+    fsize = float(np.median([f["size"] for f in hits]))
+    # yaw / pitch per probe: the face, or the IMU guess shifted by the nearest face's offset
+    ys, ps = [], []
+    for i, (ts, k, f) in enumerate(pts):
+        if f:
+            ys.append(f["yaw"]); ps.append(f["pitch"])
+            continue
+        j = min((j for j in range(len(pts)) if pts[j][2]), key=lambda j: abs(j - i))
+        kj, fj = pts[j][1], pts[j][2]
+        ys.append(k["yaw"] + _wrap(fj["yaw"] - kj["yaw"])); ps.append(k["pitch"] + fj["pitch"] - kj["pitch"])
+    ys = np.degrees(np.unwrap(np.radians(ys)))
+    if len(ys) >= 3:                                 # light 3-tap smoothing against detector jitter
+        ys = np.convolve(np.pad(ys, 1, mode="edge"), [0.25, 0.5, 0.25], "valid")
+        ps = np.convolve(np.pad(ps, 1, mode="edge"), [0.25, 0.5, 0.25], "valid")
+    w, h = size
+    out = []
+    for ts, y, p in zip(times, ys, ps):
+        fov = _at(keys, ts)["fov"]
+        vfov = math.degrees(2 * math.atan(math.tan(math.radians(fov) / 2) * h / w))
+        if fsize > 0.32 * vfov:                     # a face filling the frame: widen so head + shoulders fit
+            fov = min(110.0, fov * fsize / (0.32 * vfov))
+            vfov = math.degrees(2 * math.atan(math.tan(math.radians(fov) / 2) * h / w))
+        out.append(dict(t=round(ts, 3), yaw=round(_wrap(float(y)), 1),
+                        pitch=round(max(-60.0, min(80.0, float(p) - 0.12 * vfov)), 1), fov=round(fov, 1)))
+    return out
 
 
 def talk_keys(keys, size):

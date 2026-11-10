@@ -242,6 +242,9 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="auto", captions
         if x["kind"] == "talk":
             keys = director.talk_keys([dict(k, t=round(k["t"] - a, 3)) for k in look.holder_track(c, a, b, lift=TALK_LIFT, cap=80.0)], size)
             move = "holder"
+            fk = director.face_track(c, keys, a, size)      # YuNet: follow the speaker's face, IMU as the fallback
+            if fk:
+                keys, move = fk, "face"
         else:                                               # aim at the most interesting direction, one eased move
             try:
                 I, _ = director.interest_map(c, a + d / 2)

@@ -28,7 +28,7 @@ DJI Studio (and plug-ins such as OpenOSV) are GUI-first. To let an AI edit 360 f
 | Stills | `P` in the studio: the current moment and view rendered server-side with the full flow seam at 3840 px on the long side (aspect, grade and nadir patch as set), ~2.3 s per 4K still; also `GET /api/clip/<id>/view` |
 | Subject follow | Shift+drag a box around a person → GPU-rendered tracking views + OpenCV MIL tracker with automatic re-aiming → dense linear keyframes, previewed live and exportable |
 | Export | Keyframed yaw / pitch / fov / distortion (little planet etc.) to 16:9 / 9:16 / 1:1 / 4:5 / 2.39:1 MP4, slow motion / fast forward (optical-flow frame interpolation below the source frame rate, `interp.py`), multi-clip sequences with transitions (fade / fade-to-black / wipe / circle) and background music, burned-in or soft captions from the transcript, colour grade (exposure / contrast / saturation / temperature, identical in the live preview), freeze orbit ("bullet time": the picture stops while the camera turns, silence inserted), local slow motion of a moment, nadir patch over the hand / stick, or a full levelled 360 MP4 with spherical metadata (YouTube / VR; 4K H.264 or 8K HEVC), also as a batch per library group |
-| One-click edit | Picks talk segments (whole sentences, framed on the holder's face from the IMU, captioned) and steady scenery aimed at the most detailed / lit direction of the panorama with one eased move each (pan / push / pull / tilt-up, never twice in a row); hard cuts, whip pans where the day changes, little-planet opener and ending, fade to black; optional music with beat-snapped cuts (`autoedit.py`, `director.py`, rules in [`docs/剪辑规则.md`](docs/剪辑规则.md)) |
+| One-click edit | Picks talk segments (whole sentences, framed on the speaker's face found with OpenCV YuNet around the IMU guess of the selfie-stick holder, captioned) and steady scenery aimed at the most detailed / lit direction of the panorama with one eased move each (pan / push / pull / tilt-up, never twice in a row); hard cuts, whip pans where the day changes, little-planet opener and ending, fade to black; optional music with beat-snapped cuts (`autoedit.py`, `director.py`, rules in [`docs/剪辑规则.md`](docs/剪辑规则.md)) |
 | Metrics | `tools_flicker.py` – seam flicker vs. a single-lens no-seam reference; `seamdiag.py` – per-azimuth misalignment and exposure ratio along the seam; `tools_scale_check.py`, `tools_ring_disparity.py` – stream-scale check and wide-search across-seam disparity |
 
 ## Results (seam research, 100 frames from 20 clips)
@@ -44,6 +44,12 @@ The flow seam's advantage grows with parallax (CD ratio to the cut 0.76 → 0.42
 ## Quick start
 
 Requirements: Python 3.10+, `torch` with CUDA, `opencv-python`, `numpy`, ffmpeg/ffprobe (with `h264_nvenc`) on PATH. Optional: `numba` (≈50× faster seam path search; a pure-numpy fallback gives identical results).
+
+Optional face model for the one-click edit (talk shots fall back to the IMU guess without it):
+
+```bash
+curl -L -o models/face_detection_yunet_2023mar.onnx https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+```
 
 ```bash
 # studio: library + 360 viewer + render queue
@@ -124,7 +130,7 @@ If the studio is not running, the first tool call starts it (detached, it outliv
 
 ## Acknowledgements
 
-Format knowledge cross-checked against the documentation of [OpenOSV](https://github.com/Kemerd/OpenOSV) (Apache-2.0). No OpenOSV code is included.
+Format knowledge cross-checked against the documentation of [OpenOSV](https://github.com/Kemerd/OpenOSV) (Apache-2.0). No OpenOSV code is included. Face detection uses the [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) model from opencv_zoo (MIT), downloaded separately.
 
 ## Licence
 
