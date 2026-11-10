@@ -299,7 +299,7 @@ body.bt .btview .btpair img{cursor:default}
     <p style="font-size:12px;color:var(--dim);margin:0 0 10px">从这一组里自动挑出说话片段（镜头对着持杆人、配字幕）和稳定的风景片段（缓慢横摇），加转场后导出。结果是初稿，可以再在剪辑台调整。</p>
     <div class="row"><label>目标时长</label><select id="aeSecs"><option value="15">15 秒</option><option value="30" selected>30 秒</option><option value="60">1 分钟</option><option value="120">2 分钟</option></select></div>
     <div class="row"><label>画幅</label><select id="aeAspect"><option value="16:9">横屏 16:9</option><option value="9:16">竖屏 9:16（抖音 / 小红书）</option><option value="1:1">方形 1:1</option><option value="4:5">4:5</option></select></div>
-    <div class="row"><label>转场</label><select id="aeTrans"><option value="fade" selected>淡入淡出</option><option value="fadeblack">黑场过渡</option><option value="cut">直接切</option></select></div>
+    <div class="row"><label>转场</label><select id="aeTrans"><option value="auto" selected>自动（硬切 + 换场甩镜 + 小行星开头结尾）</option><option value="fade">淡入淡出</option><option value="fadeblack">黑场过渡</option><option value="cut">直接切</option></select></div>
     <div class="row"><label>字幕</label><select id="aeCaps"><option value="burn" selected>烧进画面</option><option value="soft">软字幕 + .srt</option><option value="off">不加</option></select></div>
     <div class="row"><label>背景音乐</label><span id="aeMusic" style="font-size:12px;color:var(--dim)"></span></div>
     <div class="exportrow"><button class="btn primary" id="aeGo">开始生成</button></div>

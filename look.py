@@ -76,7 +76,7 @@ def sheet_jpeg(clip, n=6, W=1024):
     return cv2.imencode(".jpg", np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
 
 
-def holder_direction(clip, t, lift=40.0):
+def holder_direction(clip, t, lift=40.0, cap=60.0):
     """Where the person holding the (invisible) selfie stick is: the stick runs along the camera body's
     -Z axis; the face sits above the hand, so lift the pitch.  A starting point, not a detector."""
     _, _, (ts, Ms) = _rig(clip["path"])
@@ -85,13 +85,13 @@ def holder_direction(clip, t, lift=40.0):
     yaw = math.degrees(math.atan2(d[0], d[1]))
     pitch = math.degrees(math.asin(max(-1.0, min(1.0, d[2]))))
     return dict(t=t, stick_yaw=round(yaw, 1), stick_pitch=round(pitch, 1), yaw=round(yaw, 1),
-                pitch=round(min(60.0, pitch + lift), 1), fov=100)
+                pitch=round(min(cap, pitch + lift), 1), fov=100)
 
 
-def holder_track(clip, t0, t1, step=0.5, lift=40.0, smooth=1.0):
+def holder_track(clip, t0, t1, step=0.5, lift=40.0, smooth=1.0, cap=60.0):
     """Keyframes that keep the selfie-stick holder in view between t0 and t1 (IMU only)."""
     ts_ = np.arange(t0, t1 + 1e-6, step)
-    pts = [holder_direction(clip, float(t), lift) for t in ts_]
+    pts = [holder_direction(clip, float(t), lift, cap) for t in ts_]
     yaw = np.degrees(np.unwrap(np.radians([p["yaw"] for p in pts])))
     pitch = np.array([p["pitch"] for p in pts])
     k = max(1, int(round(smooth / step)))

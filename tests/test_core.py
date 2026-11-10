@@ -287,6 +287,36 @@ def test_plan_covers_whole_trip_in_capture_order():
     assert hl["cuts"] and hl["coverage_mode"] == "highlights"
 
 
+def test_director_aim_moves_and_transitions():
+    """Scenery aim finds the detailed slice of the panorama; moves never repeat; whip / planet keys line up."""
+    import numpy as np
+    import director
+    from osvcut import interp_kf
+    I = np.full((director.EH, director.EW), 0.1)
+    c = int((90 / 360 + .5) * director.EW)                   # something bright at yaw 90, 20 deg above the horizon
+    r = int((90 - 20) / 180 * director.EH)
+    I[r - 6:r + 6, c - 20:c + 20] = 5.0
+    a = director.aim(I)
+    assert abs(a["yaw"] - 90) < 6 and 12 < a["pitch"] < 25, a
+    m1, k1 = director.scenery_keys(a, (1920, 1080), 4.0)
+    m2, _ = director.scenery_keys(a, (1920, 1080), 4.0, prev_move=m1)
+    assert m1 == "tilt" and m2 != m1                           # tall subject: tilt up first, then something else
+    assert k1[0]["t"] == 0 and k1[-1]["t"] == 4.0
+    keys = [dict(t=0.0, yaw=10.0, pitch=0.0, fov=84.0), dict(t=4.0, yaw=30.0, pitch=0.0, fov=84.0)]
+    out = director.whip_out(keys, 4.0, turn=80)
+    y0 = interp_kf(keys, 3.65)["yaw"]                         # the shot's own move up to the whip, then +80 deg
+    assert abs(interp_kf(out, 3.65)["yaw"] - y0) < 0.05 and abs(interp_kf(out, 4.0)["yaw"] - (y0 + 80)) < 0.05
+    inn = director.whip_in(keys, turn=80)
+    y1 = interp_kf(keys, 0.35)["yaw"]
+    assert abs(inn[0]["yaw"] - (y1 - 80)) < 0.05 and abs(interp_kf(inn, 0.35)["yaw"] - y1) < 0.05
+    assert abs(interp_kf(inn, 4.0)["yaw"] - 30) < 1e-6
+    op = director.planet_open(keys)
+    assert op[0]["dist"] == 1.0 and op[0]["pitch"] == -90 and interp_kf(op, 3.4)["dist"] == 0
+    cl = director.planet_close(keys, 4.0)
+    assert cl[-1]["t"] == 4.0 and cl[-1]["dist"] == 1.0
+    assert director.base_fov((1080, 1920)) < director.base_fov((1920, 1080))
+
+
 # ---------------------------------------------------------------- captions and title cards
 def test_srt_time_and_caption_mapping():
     import shutil, subprocess, tempfile

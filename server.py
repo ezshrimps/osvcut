@@ -149,7 +149,8 @@ def make_sequence(b):
     tr = b.get("transition") or None
     if tr and tr.get("type") not in ("fade", "fadeblack", "wipeleft", "circleopen"):
         tr = None
-    json.dump(dict(specs=specs, dst=dst, size=b.get("size"), fps=b.get("fps"), music=music, transition=tr, title_card=b.get("title_card")),
+    json.dump(dict(specs=specs, dst=dst, size=b.get("size"), fps=b.get("fps"), music=music, transition=tr, title_card=b.get("title_card"),
+                   fade_out=float(b.get("fade_out") or 0)),
               open(jid_spec, "w", encoding="utf8"), ensure_ascii=False, indent=1)
     json.dump(dict(title=title, size=b.get("size") or specs[0].get("size"), sequence=specs),
               open(dst[:-4] + ".json", "w", encoding="utf8"), ensure_ascii=False, indent=1)
@@ -219,7 +220,7 @@ def plan_then_queue(job, clips, b):
             job["stage"] = f"{stage} {i}/{n}"
             job["progress"] = (i / max(n, 1)) * (0.8 if stage == "analysing" else 0.2) + (0.8 if stage == "framing" else 0.0)
         plan = autoedit.plan(clips, seconds=float(b.get("seconds", 30)), aspect=b.get("aspect", "16:9"),
-                             transition=b.get("transition", "fade"), captions=b.get("captions", "burn"), music=b.get("music"),
+                             transition=b.get("transition", "auto"), captions=b.get("captions", "burn"), music=b.get("music"),
                              coverage=b.get("coverage", "even"), min_clip_seconds=float(b.get("min_clip_seconds", 2.0)),
                              progress=progress)
         plan_file = os.path.join(SPECS, f"plan_{job['id']}.json")
@@ -237,7 +238,8 @@ def plan_then_queue(job, clips, b):
         if plan.get("beat") and music:
             music = dict(music, start=plan["beat"]["phase"])
         cmd, dst, _ = make_sequence(dict(specs=plan["specs"], size=plan["size"], fps=plan["fps"], music=music,
-                                         transition=plan.get("transition"), title=job["title"]))
+                                         transition=plan.get("transition"), fade_out=plan.get("fade_out"),
+                                         title=job["title"]))
         job.update(cmd=cmd, output=rel_url(dst), status="queued", stage=None, progress=0.0, started=None)
         JOBQ.put(job["id"])
     except Exception as e:                                       # noqa: BLE001

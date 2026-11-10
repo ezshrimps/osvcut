@@ -48,6 +48,9 @@ def suggest(motion, tx, dur, calm_every=None):
 
 
 KIND_SCORE = {"talk": 3.0, "calm": 2.0}
+TALK_LIFT = 58.0                                    # deg above the stick: the face, not the chest (talk framing)
+TALK_MAX = 8.0                                      # s: longest talk cut (whole transcript sentences)
+SCENERY_LEN = (3.5, 3.0, 4.5, 3.0, 4.0)             # s: scenery cut lengths, varied so the rhythm is not a metronome
 CALM_EVERY = 15.0                                   # s between calm windows offered inside one long steady run
 PARTS = [(0, 5, "凌晨"), (5, 12, "早"), (12, 18, "午"), (18, 24, "晚")]
 SIZES = {"16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:5": [1080, 1350]}
@@ -84,7 +87,7 @@ def _words(text):
     return len(re.findall(r"[㐀-鿿]|[A-Za-z0-9']+", text or ""))
 
 
-def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="fade", captions="burn", min_len=2.5, max_len=6.0,
+def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="auto", captions="burn", min_len=2.5, max_len=6.0,
          music=None, coverage="even", min_clip_seconds=2.0, progress=None):
     """clips: library clip dicts (path, id, duration, shot, audio, lenses).  Returns a sequence job body (specs, size,
     fps, ...) plus a reviewable plan: cuts (clip-time keys and captions, render_sequence format), coverage by part of
@@ -125,7 +128,15 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="fade", captions
         for s in suggest(mo, tx, dur, calm_every=CALM_EVERY):
             if s["kind"] not in KIND_SCORE:
                 continue
-            a, b = float(s["start"]), min(float(s["end"]), float(s["start"]) + max_len)
+            if s["kind"] == "talk":
+                # whole sentences: a little air before the first word and after the last, never cut mid-sentence
+                a, b = max(0.0, float(s["start"]) - 0.15), float(s["end"]) + 0.35
+                if b - a > TALK_MAX:
+                    ends = [g["end"] + 0.35 for g in tx["segments"] if a < g["end"] and g["end"] + 0.35 - a <= TALK_MAX]
+                    b = max(ends) if ends else a + TALK_MAX
+            else:                                            # varied lengths, so the rhythm is not a metronome
+                a = float(s["start"])
+                b = min(float(s["end"]), a + max_len, a + max(min_len, SCENERY_LEN[len(cands) % len(SCENERY_LEN)]))
             b = min(b, dur - 0.1)
             if b - a < min_len:
                 continue
@@ -196,6 +207,11 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="fade", captions
             x = max(pool, key=lambda x: min((abs(x["pos"] - y["pos"]) for y in chosen), default=T) / B + 0.1 * x["score"])
             chosen.append(x); total += length(x)
     chosen.sort(key=lambda x: (x["ci"], x["start"]))       # capture order
+    auto = transition == "auto"
+    if auto and len(chosen) > 1:                            # room for the little-planet opener and ending
+        for x in (chosen[0], chosen[-1]):
+            if x["kind"] != "talk":
+                x["end"] = x["start"] + min(float(x["clip"]["duration"]) - 0.1 - x["start"], max(5.0, x["end"] - x["start"]))
     # beat sync: with background music, every part lasts a whole number of bars (2 beats) plus the transition,
     # so each transition starts on a beat; the music is then started at its first beat (sequence.py)
     grid = None
@@ -208,7 +224,7 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="fade", captions
         except Exception:                                  # noqa: BLE001
             grid = None
     if grid:
-        d = 0.5 if transition and transition != "cut" else 0.0
+        d = 0.5 if transition and transition not in ("cut", "auto") else 0.0
         bar = 2 * grid["period"]
         for x in chosen:
             room = x["clip"].get("duration", x["end"]) - 0.1 - x["start"]
@@ -216,15 +232,36 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="fade", captions
             while m > 1 and m * bar + d > room:
                 m -= 1
             x["end"] = x["start"] + min(m * bar + d, room)
+    import director
     specs, cuts = [], []
+    chap = [period(shot_time(x["clip"])) for x in chosen]
+    prev_move = None
     for i, x in enumerate(chosen):
         c, a, b = x["clip"], x["start"], x["end"]
+        d = round(b - a, 3)
         if x["kind"] == "talk":
-            keys_abs = look.holder_track(c, a, b)
-        else:                                               # slow pan along the heading
-            keys_abs = [dict(t=round(a, 3), yaw=-12.0, pitch=-5.0, fov=100.0, ease="linear"),
-                        dict(t=round(b, 3), yaw=12.0, pitch=-5.0, fov=100.0)]
-        keys = [dict(k, t=round(k["t"] - a, 3)) for k in keys_abs]
+            keys = director.talk_keys([dict(k, t=round(k["t"] - a, 3)) for k in look.holder_track(c, a, b, lift=TALK_LIFT, cap=80.0)], size)
+            move = "holder"
+        else:                                               # aim at the most interesting direction, one eased move
+            try:
+                I, _ = director.interest_map(c, a + d / 2)
+                am = director.aim(I)
+            except Exception:                               # noqa: BLE001  (no frame / no IMU: look ahead)
+                am = dict(yaw=0.0, pitch=0.0, side=1, strength=0.0)
+            move, keys = director.scenery_keys(am, size, d, prev_move)
+        prev_move = move
+        trans_in = trans_out = "cut"
+        if auto:
+            if i == 0 and d >= 3.0:
+                keys, trans_in = director.planet_open(keys, unfold=min(2.6, d * 0.5), settle=min(3.4, d * 0.68)), "planet"
+            elif i > 0 and chap[i] != chap[i - 1]:
+                keys, trans_in = director.whip_in(keys), "whip"
+            if i == len(chosen) - 1 and d >= 3.0 and len(chosen) > 1:
+                keys, trans_out = director.planet_close(keys, d, dur=min(2.4, d * 0.5)), "planet"
+            elif i + 1 < len(chosen) and chap[i + 1] != chap[i]:
+                keys, trans_out = director.whip_out(keys, d), "whip"
+        x["move"], x["trans"] = move, (trans_in, trans_out)
+        keys_abs = [dict(k, t=round(k["t"] + a, 3)) for k in keys]
         sp = dict(src=c["path"], **{"in": round(a, 2), "out": round(b, 2)}, proj="flat", size=size, fps=fps, seam="flow",
                   seam_opts={"conf": "photo"}, cq=20, keys=keys)
         caps = []
@@ -237,6 +274,7 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="fade", captions
         st = shot_time(c)
         cuts.append(dict(clip_id=c["id"], start=round(a, 2), end=round(b, 2), kind=x["kind"],
                          shot=st.isoformat(sep=" ") if st != datetime.min else None, text=x["text"][:120], keys=keys_abs,
+                         move=x["move"], transition_in=x["trans"][0], transition_out=x["trans"][1],
                          **({"captions": caps} if caps else {})))
         if progress:
             progress(i + 1, len(chosen), "framing")
@@ -275,7 +313,9 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="fade", captions
                cuts=cuts, coverage=cov, warnings=warnings, missing_transcripts=missing, skipped=skipped,
                n_clips=len(usable), footage_s=round(T, 1), coverage_mode="highlights" if coverage == "highlights" else "even",
                span=[min(times).isoformat(sep=" "), max(times).isoformat(sep=" ")] if times else None)
-    if transition and transition != "cut":
+    if auto:
+        job["fade_out"] = 1.0                               # hard cuts / whips are in the keys; the film fades to black
+    elif transition and transition != "cut":
         job["transition"] = dict(type=transition, duration=0.5)
     if grid:
         job["beat"] = grid

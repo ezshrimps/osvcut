@@ -84,6 +84,14 @@ def main(job_path):
                             "anullsrc=channel_layout=stereo:sample_rate=48000", "-map", "0:v", "-map", "1:a",
                             "-c:v", "copy", "-c:a", "aac", "-shortest", fixed], check=True)
             part = fixed
+        if not (job.get("transition") or {}).get("type") in TRANSITIONS:
+            # hard cuts: 30 ms audio ramps at both ends so a cut never clicks
+            dp = duration(part)
+            soft = part[:-4] + "_f.mp4"
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", part, "-c:v", "copy", "-af",
+                            f"afade=t=in:d=0.03,afade=t=out:st={max(0, dp - 0.03):.3f}:d=0.03", "-c:a", "aac", "-b:a", "192k",
+                            soft], check=True)
+            part = soft
         parts.append(part)
         done_w += weights[i]
     lst = os.path.join(tmp, "list.txt")
@@ -114,6 +122,20 @@ def main(job_path):
         sys.path.insert(0, here)
         from osvcut import add_title
         add_title(dst, tc["text"], size, float(tc.get("seconds", 3.0)), tc.get("subtitle", ""))
+    fo = float(job.get("fade_out") or 0)
+    if fo > 0:                                     # the film ends on a fade to black (picture and sound)
+        dur = duration(dst)
+        st = max(0.0, dur - fo)
+        faded = os.path.join(tmp, "faded.mp4")
+        cmd = ["ffmpeg", "-v", "error", "-y", "-i", dst, "-vf", f"fade=t=out:st={st:.3f}:d={fo:.3f}",
+               "-af", f"afade=t=out:st={st:.3f}:d={fo:.3f}", "-c:v", "h264_nvenc", "-preset", "p5", "-cq", "19",
+               "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", faded]
+        if subprocess.run(cmd).returncode != 0:
+            cmd[cmd.index("h264_nvenc")] = "libx264"
+            i = cmd.index("-preset"); cmd[i + 1] = "medium"
+            i = cmd.index("-cq"); cmd[i:i + 2] = ["-crf", "19"]
+            subprocess.run(cmd, check=True)
+        os.replace(faded, dst)
     if specs and all(sp.get("spherical") and sp.get("proj") == "equirect" for sp in specs):
         import spherical                       # every cut is a 360 render: tag the joined film too
         spherical.inject(dst)
