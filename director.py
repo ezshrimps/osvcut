@@ -77,16 +77,90 @@ def aim(I, window=70.0):
                 side=1 if right >= left else -1, strength=float(win[i0] / (col.sum() * np.hanning(k).sum() / EW + 1e-9)))
 
 
+def body_rot(clip, t):
+    """Levelled-world -> camera-body rotation at time t (IMU): body = M @ world."""
+    import look
+    _, _, (ts, Ms) = look._rig(clip["path"])
+    return np.asarray(Ms[min(np.searchsorted(ts, t), len(Ms) - 1)], dtype=np.float64)
+
+
+def seam_angle(M, dirs):
+    """Angular distance (deg) of world directions (..., 3) from the lens-to-lens seam.  The seam engine joins the
+    lenses on the body plane y = 0 (master lens +Y, slave -Y; the flow seam wanders within +-4.5 deg of it), so
+    this is |asin(body y)| - exact for every frame from the IMU alone, no image needed."""
+    b = dirs @ M.T
+    return np.degrees(np.arcsin(np.clip(np.abs(b[..., 1]), 0, 1)))
+
+
+def _view_rays(yaw, pitch, fov, size, nx=48):
+    from osvcut import cam_rot
+    w, h = size
+    ny = max(8, int(nx * h / w))
+    f = (nx / 2) / math.tan(math.radians(min(fov, 170.0)) / 2)
+    xs = (np.arange(nx) + .5 - nx / 2) / f
+    zs = -(np.arange(ny) + .5 - ny / 2) / f
+    Z, X = np.meshgrid(zs, xs, indexing="ij")
+    d = np.stack([X, np.ones_like(X), Z], -1)
+    d /= np.linalg.norm(d, axis=-1, keepdims=True)
+    r = np.hypot((np.arange(nx)[None] + .5 - nx / 2) / (nx / 2), (np.arange(ny)[:, None] + .5 - ny / 2) / (ny / 2))
+    return d @ np.asarray(cam_rot(yaw, pitch)).T, r
+
+
+def seam_share(M, yaw, pitch, fov, size, near=8.0):
+    """How much of a view the seam spoils: share of the frame within `near` deg of the seam, the centre counting
+    three times the edge (a seam through the subject is worse than one along the border)."""
+    d, r = _view_rays(yaw, pitch, fov, size)
+    wgt = 1 + 2 * np.clip(1 - r / 1.2, 0, 1)
+    return float((wgt * (seam_angle(M, d) < near)).sum() / wgt.sum())
+
+
+def avoid_seam(clip, t0, keys, size, max_shift=30.0, near=8.0):
+    """Turn a whole shot (keys in shot time) by up to max_shift deg of yaw (and a little pitch) so the seam leaves
+    the frame, unless the seam runs through the subject at the centre of the view (then the shot is about what
+    is on the seam and stays).  Returns (keys, info)."""
+    ks = [k for k in keys if k.get("dist", 0) < 0.05]
+    if not ks:
+        return keys, dict(shift=0.0, share=None)
+    Ms = [body_rot(clip, t0 + k["t"]) for k in ks]
+    from osvcut import cam_rot
+    centre = [seam_angle(M, np.asarray(cam_rot(k["yaw"], k["pitch"])) @ np.array([0.0, 1.0, 0.0])) for M, k in zip(Ms, ks)]
+
+    def cost(dy, dp):
+        return float(np.mean([seam_share(M, k["yaw"] + dy, k["pitch"] + dp, k["fov"], size, near)
+                              for M, k in zip(Ms, ks)]))
+    base = cost(0, 0)
+    if base < 0.01:
+        return keys, dict(shift=0.0, share=round(base, 3))
+    if np.median(centre) < near / 2:                  # the subject sits on the seam: keep it
+        return keys, dict(shift=0.0, share=round(base, 3), on_subject=True)
+    best = (base, 0.0, 0.0)
+    for dy in np.arange(-max_shift, max_shift + 1e-6, 5.0):
+        for dp in (0.0, -6.0, 6.0):
+            c = cost(dy, dp) + 0.002 * abs(dy) + 0.004 * abs(dp)      # move as little as possible
+            if c < best[0]:
+                best = (c, float(dy), dp)
+    _, dy, dp = best
+    if dy == 0 and dp == 0:
+        return keys, dict(shift=0.0, share=round(base, 3))
+    out = [dict(k, yaw=round(_wrap(k["yaw"] + dy), 1), pitch=round(k["pitch"] + dp, 1)) if k.get("dist", 0) < 0.05 else k
+           for k in keys]
+    return out, dict(shift=dy, pitch_shift=dp, share=round(base, 3), after=round(cost(dy, dp), 3))
+
+
 MOVES = ("pan", "push", "pull", "tilt")
 
 
-def scenery_keys(a, size, d, prev_move=None, pan_dir=1):
-    """Keys (shot time) for a scenery shot of d seconds aimed at a = aim(...)."""
+def scenery_keys(a, size, d, prev_move=None, pan_dir=1, move=None):
+    """Keys (shot time) for a scenery shot of d seconds aimed at a = aim(...).  move: the director's choice
+    (pan / push / pull / tilt / hold); by default tilt for tall subjects, else the next move unlike the last one."""
     f = base_fov(size)
     y, p = a["yaw"], a["pitch"]
-    order = ["tilt"] if p > 8 else []
-    order += ["pan", "push", "pull"]
-    move = next(m for m in order if m != prev_move)
+    if move not in MOVES + ("hold",):
+        order = ["tilt"] if p > 8 else []
+        order += ["pan", "push", "pull"]
+        move = next(m for m in order if m != prev_move)
+    if move == "hold":
+        return move, [dict(t=0.0, yaw=y, pitch=p, fov=f), dict(t=round(d, 3), yaw=y, pitch=p, fov=round(f * 0.97, 1))]
     if move == "pan":
         s = a["side"] * pan_dir if pan_dir else a["side"]
         span = min(36.0, 8.0 * d)                            # <= 8 deg/s
@@ -208,17 +282,18 @@ def pick_speaker(cands, cur, pending, switch=1.6, hold=2, speaking=1.3):
     return inc, 0
 
 
-def face_track(clip, keys, t0, size, step=0.8, min_hits=0.5):
+def face_track(clip, keys, t0, size, step=0.8, min_hits=0.5, seed=None):
     """Re-aim holder keys (shot time) onto whoever is speaking: probe every `step` s around the face framed so
     far (or the IMU guess of the selfie-stick holder), pick the speaker by mouth motion with hysteresis
     (pick_speaker), key the face direction itself, put the eye line a little above the centre and widen the view
-    when the face would fill the frame.  None when a face is seen in fewer than min_hits of the probes."""
+    when the face would fill the frame.  seed (yaw, pitch): the person the director named - framed first, left
+    only when someone else clearly talks.  None when a face is seen in fewer than min_hits of the probes."""
     if not keys or not os.path.exists(YUNET):
         return None
     d = keys[-1]["t"]
     n = max(2, int(round(d / step)) + 1)
     times = [d * i / (n - 1) for i in range(n)]
-    pts, cur, pending, scans = [], None, 0, 0
+    pts, cur, pending, scans = [], (tuple(seed) if seed else None), 0, 0
     for ts in times:
         k = _at(keys, ts)
         f = None
@@ -262,8 +337,10 @@ def face_track(clip, keys, t0, size, step=0.8, min_hits=0.5):
         if fsize > 0.32 * vfov:                     # a face filling the frame: widen so head + shoulders fit
             fov = min(125.0, fov * fsize / (0.32 * vfov))
             vfov = math.degrees(2 * math.atan(math.tan(math.radians(fov) / 2) * h / w))
+        # eye line a little above the centre, but never the top of the head cut off (a selfie face is big)
+        pc = max(float(p) - 0.12 * vfov, float(p) + fsize / 2 - 0.42 * vfov)
         out.append(dict(t=round(ts, 3), yaw=round(_wrap(float(y)), 1),
-                        pitch=round(max(-60.0, min(80.0, float(p) - 0.12 * vfov)), 1), fov=round(fov, 1)))
+                        pitch=round(max(-60.0, min(80.0, pc)), 1), fov=round(fov, 1)))
     return out
 
 

@@ -441,6 +441,16 @@ def auto_edit(clip_ids=None, query="", seconds=60, aspect="16:9", transition="au
     return [_text(msg)]
 
 
+def directed_edit(shots, aspect="16:9", transition="auto", captions="burn", title=""):
+    ids = list(dict.fromkeys(str(s.get("clip_id")) for s in shots))
+    j = _post("/api/jobs", dict(kind="autoedit", clip_ids=ids, shots=shots, aspect=aspect, transition=transition,
+                                captions=captions, title=title or None))
+    if "id" not in j:
+        raise ValueError(j.get("error") or "request failed")
+    return [_text(f"directed edit job {j['id']} started ({j['status']}): {len(shots)} shots. "
+                  f"Use job_status('{j['id']}', wait_seconds=...); framing takes ~5-20 s per talk shot, then it renders.")]
+
+
 def job_status(job_id, wait_seconds=0):
     j = _wait_job(job_id, wait_seconds) if wait_seconds else next((j for j in _get("/api/jobs") if j["id"] == job_id), None)
     if not j:
@@ -464,7 +474,7 @@ TOOLS = {
                     "category": {"type": "string"}, "limit": {"type": "integer", "default": 30}}, []),
     "search_speech": (search_speech, "Find clips by what is said in them (speech transcripts). Returns clip id, time range and the sentence.",
                       {"query": {"type": "string"}, "limit": {"type": "integer", "default": 30}}, ["query"]),
-    "clip_overview": (clip_overview, "Understand a clip: levelled 360 contact sheet (image), speech transcript, camera motion and suggested segments.",
+    "clip_overview": (clip_overview, "Understand a clip: levelled 360 contact sheet (image; yaw ticks on top, the thin red line is the lens seam - keep subjects off it), speech transcript, camera motion and suggested segments.",
                       {"clip_id": {"type": "string"}, "frames": {"type": "integer", "default": 6}}, ["clip_id"]),
     "look": (look, "Render what a virtual camera sees at time t looking at (yaw, pitch) with field of view fov; little_planet=true for a stereographic overview; at='holder' aims roughly at the person holding the selfie stick (computed from the IMU, refine with yaw/pitch afterwards).",
              {"clip_id": {"type": "string"}, "t": {"type": "number"}, "yaw": {"type": "number"}, "pitch": {"type": "number", "default": 0},
@@ -521,6 +531,28 @@ TOOLS = {
                    "music_path": {"type": "string", "description": "local audio file (mp3/m4a/aac/wav/flac/ogg) for background music; cuts are snapped to its beats"},
                    "transcribe_missing": {"type": "boolean", "default": False, "description": "transcribe clips without a transcript first (slower, but adds talk segments and captions)"},
                    "min_clip_seconds": {"type": "number", "default": 2}}, []),
+    "directed_edit": (directed_edit, "Render a film from YOUR shot list - the way to make a film that is about something. First understand the "
+                      "footage: read what is said (search_speech, clip_overview transcripts), look at the panoramas (clip_overview, look) and decide "
+                      "what each moment means and where in the 360 its subject is (who is talking, what they talk about or look at). Then give "
+                      "the shots in film order with that subject as focus {yaw, pitch} (yaw/pitch as in clip_overview: 0 = camera forward, "
+                      "+ = right / up). The tool does the craft: talk shots follow the speaking face searched around the focus (mouth motion "
+                      "picks the speaker), other shots aim at the focus with one eased move (or the one you name), every shot is turned a little "
+                      "so the lens seam (red line in clip_overview) stays out of frame unless the subject is on it, captions from the "
+                      "transcript, transition auto = hard cuts, whip pans between chapters, little-planet open / close, fade to black.",
+                      {"shots": {"type": "array", "items": {"type": "object", "properties": {
+                          "clip_id": {"type": "string"}, "start": {"type": "number"}, "end": {"type": "number"},
+                          "kind": {"type": "string", "enum": ["talk", "calm"], "description": "talk = frame the speaker; calm = scenery / action"},
+                          "focus": {"type": "object", "properties": {"yaw": {"type": "number"}, "pitch": {"type": "number"}},
+                                    "description": "where the subject of this shot is"},
+                          "move": {"type": "string", "enum": ["pan", "push", "pull", "tilt", "hold"]},
+                          "chapter": {"type": "string", "description": "shots of a new chapter start with a whip pan"},
+                          "caption": {"type": "boolean", "description": "burn the transcript in (default: talk shots only)"},
+                          "note": {"type": "string", "description": "why this shot is in the film (kept in the plan)"}},
+                          "required": ["clip_id", "start", "end"]}},
+                       "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5"], "default": "16:9"},
+                       "transition": {"type": "string", "enum": ["auto", "cut", "fade", "fadeblack", "wipeleft", "circleopen"], "default": "auto"},
+                       "captions": {"type": "string", "enum": ["off", "burn", "soft"], "default": "burn"},
+                       "title": {"type": "string"}}, ["shots"]),
     "job_status": (job_status, "Status of a job (render, track, transcription, plan, auto edit); wait_seconds > 0 blocks until it finishes (up to that long). Plan and auto-edit jobs also show their cuts, coverage and warnings.",
                    {"job_id": {"type": "string"}, "wait_seconds": {"type": "integer", "default": 0}}, ["job_id"]),
 }

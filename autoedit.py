@@ -87,6 +87,124 @@ def _words(text):
     return len(re.findall(r"[㐀-鿿]|[A-Za-z0-9']+", text or ""))
 
 
+def frame_cuts(chosen, size, fps, captions="burn", auto=True, progress=None):
+    """Virtual-camera keys, transitions and captions for picked cuts (capture order).  Each item: clip, start, end,
+    kind ("talk" | "calm"), text, tx (transcript or None); optional director notes: focus (dict yaw, pitch: what the
+    shot is about), move (pan / push / pull / tilt / hold), chapter (cuts with a different chapter are joined by a
+    whip pan), note.  Talk shots follow the speaking face (searched around the focus, else around the IMU guess of
+    the selfie-stick holder); other shots aim at the focus, else at the most interesting direction.  Every shot is
+    then turned a little so the lens seam stays out of frame unless the subject is on it.  Returns (specs, cuts)."""
+    import director
+    import look
+    specs, cuts = [], []
+    chap = [x.get("chapter") or period(shot_time(x["clip"])) for x in chosen]
+    prev_move = None
+    for i, x in enumerate(chosen):
+        c, a, b = x["clip"], x["start"], x["end"]
+        d = round(b - a, 3)
+        fo = x.get("focus")
+        if x["kind"] == "talk":
+            if fo:                                          # the director says where the speaker is
+                keys = director.talk_keys([dict(t=0.0, yaw=float(fo["yaw"]), pitch=float(fo["pitch"]), fov=100.0),
+                                           dict(t=d, yaw=float(fo["yaw"]), pitch=float(fo["pitch"]), fov=100.0)], size)
+            else:
+                keys = director.talk_keys([dict(k, t=round(k["t"] - a, 3)) for k in look.holder_track(c, a, b, lift=TALK_LIFT, cap=80.0)], size)
+            move = "holder"
+            fk = director.face_track(c, keys, a, size,      # YuNet: follow the speaker's face, IMU as the fallback
+                                     seed=(float(fo["yaw"]), float(fo["pitch"])) if fo else None)
+            if fk:
+                keys, move = fk, "face"
+        else:                                               # aim at the subject, one eased move
+            if fo:
+                am = dict(yaw=float(fo["yaw"]), pitch=float(fo["pitch"]), side=int(fo.get("side", 1)), strength=1.0)
+            else:                                           # nobody said what it is about: the most interesting part
+                try:
+                    I, _ = director.interest_map(c, a + d / 2)
+                    am = director.aim(I)
+                except Exception:                           # noqa: BLE001  (no frame / no IMU: look ahead)
+                    am = dict(yaw=0.0, pitch=0.0, side=1, strength=0.0)
+            move, keys = director.scenery_keys(am, size, d, prev_move, move=x.get("move"))
+        try:                                                # keep the lens-to-lens seam out of the frame
+            keys, seam = director.avoid_seam(c, a, keys, size,     # a named subject stays near the centre
+                                             max_shift=12.0 if x["kind"] == "talk" else 15.0 if fo else 30.0)
+        except Exception:                                   # noqa: BLE001  (no IMU track)
+            seam = dict(shift=0.0, share=None)
+        x["seam"] = seam
+        prev_move = move
+        trans_in = trans_out = "cut"
+        if auto:
+            if i == 0 and d >= 3.0:
+                keys, trans_in = director.planet_open(keys, unfold=min(2.6, d * 0.5), settle=min(3.4, d * 0.68)), "planet"
+            elif i > 0 and chap[i] != chap[i - 1]:
+                keys, trans_in = director.whip_in(keys), "whip"
+            if i == len(chosen) - 1 and d >= 3.0 and len(chosen) > 1:
+                keys, trans_out = director.planet_close(keys, d, dur=min(2.4, d * 0.5)), "planet"
+            elif i + 1 < len(chosen) and chap[i + 1] != chap[i]:
+                keys, trans_out = director.whip_out(keys, d), "whip"
+        x["move"], x["trans"] = move, (trans_in, trans_out)
+        keys_abs = [dict(k, t=round(k["t"] + a, 3)) for k in keys]
+        sp = dict(src=c["path"], **{"in": round(a, 2), "out": round(b, 2)}, proj="flat", size=size, fps=fps, seam="flow",
+                  seam_opts={"conf": "photo"}, cq=20, keys=keys)
+        caps = []
+        if captions in ("burn", "soft") and x.get("caption", x["kind"] == "talk") and x["tx"]:
+            caps = [dict(start=s["start"], end=s["end"], text=s["text"]) for s in x["tx"].get("segments", [])
+                    if s["end"] > a and s["start"] < b]
+            if caps:
+                sp.update(captions=caps, captions_mode=captions)
+        specs.append(sp)
+        st = shot_time(c)
+        cuts.append(dict(clip_id=c["id"], start=round(a, 2), end=round(b, 2), kind=x["kind"],
+                         shot=st.isoformat(sep=" ") if st != datetime.min else None, text=x["text"][:120], keys=keys_abs,
+                         move=x["move"], seam=x.get("seam"), **({"note": x["note"]} if x.get("note") else {}),
+                         transition_in=x["trans"][0], transition_out=x["trans"][1],
+                         **({"captions": caps} if caps else {})))
+        if progress:
+            progress(i + 1, len(chosen), "framing")
+    return specs, cuts
+
+
+def plan_shots(clips, shots, aspect="16:9", fps=30, transition="auto", captions="burn", progress=None):
+    """A directed edit: the shot list comes from someone who understood the footage (a person, or an AI agent that
+    read the transcripts and looked at the panoramas), the craft from frame_cuts.  shots: [dict(clip_id, start,
+    end, kind="talk" | "calm", focus=dict(yaw, pitch) | None, move=None, chapter=None, note="", caption=None)] in
+    film order.  Returns a sequence job like plan()."""
+    import analysis
+    size = SIZES.get(aspect, [1920, 1080])
+    byid = {c["id"]: c for c in clips}
+    chosen, warnings = [], []
+    for n, sh in enumerate(shots):
+        c = byid.get(sh.get("clip_id"))
+        if c is None:
+            warnings.append(f"shot {n}: unknown clip {sh.get('clip_id')}")
+            continue
+        dur = float(c.get("duration") or 0)
+        a = max(0.0, float(sh["start"]))
+        b = min(dur - 0.05, float(sh["end"])) if dur else float(sh["end"])
+        if b - a < 0.5:
+            warnings.append(f"shot {n}: {sh.get('clip_id')} {a:.1f}-{b:.1f} is too short")
+            continue
+        tp = analysis.transcript_path(c["id"])
+        tx = json.load(open(tp, encoding="utf8")) if os.path.exists(tp) else None
+        text = " ".join(g["text"].strip() for g in (tx or {}).get("segments", []) if g["end"] > a and g["start"] < b)
+        kind = sh.get("kind") or ("talk" if text else "calm")
+        chosen.append(dict(clip=c, start=a, end=b, kind=kind, tx=tx, text=text, focus=sh.get("focus"),
+                           move=sh.get("move"), chapter=sh.get("chapter"), note=sh.get("note", ""),
+                           **({"caption": bool(sh["caption"])} if sh.get("caption") is not None else {})))
+    auto = transition == "auto"
+    specs, cuts = frame_cuts(chosen, size, fps, captions, auto, progress)
+    total = sum(x["end"] - x["start"] for x in chosen)
+    job = dict(specs=specs, size=size, fps=fps, seconds=round(total, 1), cuts=cuts, warnings=warnings, directed=True,
+               picked=[dict(clip=x["clip"]["id"], kind=x["kind"], start=round(x["start"], 1), end=round(x["end"], 1),
+                            shot=cu["shot"], text=cu["text"]) for x, cu in zip(chosen, cuts)],
+               coverage=[], missing_transcripts=[], skipped=[], n_clips=len({x["clip"]["id"] for x in chosen}),
+               footage_s=round(sum(float(c.get("duration") or 0) for c in {x["clip"]["id"]: x["clip"] for x in chosen}.values()), 1))
+    if auto:
+        job["fade_out"] = 1.0
+    elif transition and transition != "cut":
+        job["transition"] = dict(type=transition, duration=0.5)
+    return job
+
+
 def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="auto", captions="burn", min_len=2.5, max_len=6.0,
          music=None, coverage="even", min_clip_seconds=2.0, progress=None):
     """clips: library clip dicts (path, id, duration, shot, audio, lenses).  Returns a sequence job body (specs, size,
@@ -232,55 +350,7 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="auto", captions
             while m > 1 and m * bar + d > room:
                 m -= 1
             x["end"] = x["start"] + min(m * bar + d, room)
-    import director
-    specs, cuts = [], []
-    chap = [period(shot_time(x["clip"])) for x in chosen]
-    prev_move = None
-    for i, x in enumerate(chosen):
-        c, a, b = x["clip"], x["start"], x["end"]
-        d = round(b - a, 3)
-        if x["kind"] == "talk":
-            keys = director.talk_keys([dict(k, t=round(k["t"] - a, 3)) for k in look.holder_track(c, a, b, lift=TALK_LIFT, cap=80.0)], size)
-            move = "holder"
-            fk = director.face_track(c, keys, a, size)      # YuNet: follow the speaker's face, IMU as the fallback
-            if fk:
-                keys, move = fk, "face"
-        else:                                               # aim at the most interesting direction, one eased move
-            try:
-                I, _ = director.interest_map(c, a + d / 2)
-                am = director.aim(I)
-            except Exception:                               # noqa: BLE001  (no frame / no IMU: look ahead)
-                am = dict(yaw=0.0, pitch=0.0, side=1, strength=0.0)
-            move, keys = director.scenery_keys(am, size, d, prev_move)
-        prev_move = move
-        trans_in = trans_out = "cut"
-        if auto:
-            if i == 0 and d >= 3.0:
-                keys, trans_in = director.planet_open(keys, unfold=min(2.6, d * 0.5), settle=min(3.4, d * 0.68)), "planet"
-            elif i > 0 and chap[i] != chap[i - 1]:
-                keys, trans_in = director.whip_in(keys), "whip"
-            if i == len(chosen) - 1 and d >= 3.0 and len(chosen) > 1:
-                keys, trans_out = director.planet_close(keys, d, dur=min(2.4, d * 0.5)), "planet"
-            elif i + 1 < len(chosen) and chap[i + 1] != chap[i]:
-                keys, trans_out = director.whip_out(keys, d), "whip"
-        x["move"], x["trans"] = move, (trans_in, trans_out)
-        keys_abs = [dict(k, t=round(k["t"] + a, 3)) for k in keys]
-        sp = dict(src=c["path"], **{"in": round(a, 2), "out": round(b, 2)}, proj="flat", size=size, fps=fps, seam="flow",
-                  seam_opts={"conf": "photo"}, cq=20, keys=keys)
-        caps = []
-        if captions in ("burn", "soft") and x["kind"] == "talk" and x["tx"]:
-            caps = [dict(start=s["start"], end=s["end"], text=s["text"]) for s in x["tx"].get("segments", [])
-                    if s["end"] > a and s["start"] < b]
-            if caps:
-                sp.update(captions=caps, captions_mode=captions)
-        specs.append(sp)
-        st = shot_time(c)
-        cuts.append(dict(clip_id=c["id"], start=round(a, 2), end=round(b, 2), kind=x["kind"],
-                         shot=st.isoformat(sep=" ") if st != datetime.min else None, text=x["text"][:120], keys=keys_abs,
-                         move=x["move"], transition_in=x["trans"][0], transition_out=x["trans"][1],
-                         **({"captions": caps} if caps else {})))
-        if progress:
-            progress(i + 1, len(chosen), "framing")
+    specs, cuts = frame_cuts(chosen, size, fps, captions, auto, progress)
     # coverage report by day and part of day (capture time of the clip)
     groups = {}
     for c in usable:

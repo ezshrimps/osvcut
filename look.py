@@ -66,6 +66,9 @@ def sheet_jpeg(clip, n=6, W=1024):
     base = view_dirs("equirect", W, W // 2)
     for t in times:
         im = (_render(clip["path"], t, base).clamp(0, 1) * 255).byte().permute(1, 2, 0).cpu().numpy()[:, :, ::-1].copy()
+        _, _, (ts, Ms) = _rig(clip["path"])               # the lens seam (body y = 0) as a thin red line
+        M = np.asarray(Ms[min(np.searchsorted(ts, t), len(Ms) - 1)])
+        im[np.abs((base.cpu().numpy() @ M.T)[..., 1]) < 0.006] = (0, 0, 255)
         for yaw in range(-180, 181, 45):
             x = int((yaw / 360 + .5) * W)
             cv2.line(im, (x, 0), (x, 12), (0, 255, 255), 2)

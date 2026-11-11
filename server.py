@@ -219,10 +219,15 @@ def plan_then_queue(job, clips, b):
         def progress(i, n, stage):
             job["stage"] = f"{stage} {i}/{n}"
             job["progress"] = (i / max(n, 1)) * (0.8 if stage == "analysing" else 0.2) + (0.8 if stage == "framing" else 0.0)
-        plan = autoedit.plan(clips, seconds=float(b.get("seconds", 30)), aspect=b.get("aspect", "16:9"),
-                             transition=b.get("transition", "auto"), captions=b.get("captions", "burn"), music=b.get("music"),
-                             coverage=b.get("coverage", "even"), min_clip_seconds=float(b.get("min_clip_seconds", 2.0)),
-                             progress=progress)
+        if b.get("shots"):                               # a directed edit: the shot list comes with the job
+            plan = autoedit.plan_shots(clips, b["shots"], aspect=b.get("aspect", "16:9"),
+                                       transition=b.get("transition", "auto"), captions=b.get("captions", "burn"),
+                                       progress=progress)
+        else:
+            plan = autoedit.plan(clips, seconds=float(b.get("seconds", 30)), aspect=b.get("aspect", "16:9"),
+                                 transition=b.get("transition", "auto"), captions=b.get("captions", "burn"),
+                                 music=b.get("music"), coverage=b.get("coverage", "even"),
+                                 min_clip_seconds=float(b.get("min_clip_seconds", 2.0)), progress=progress)
         plan_file = os.path.join(SPECS, f"plan_{job['id']}.json")
         json.dump({k: v for k, v in plan.items() if k != "specs"}, open(plan_file, "w", encoding="utf8"), ensure_ascii=False, indent=1)
         job["plan"], job["plan_file"] = plan_summary(plan), rel_url(plan_file)

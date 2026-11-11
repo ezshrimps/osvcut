@@ -457,6 +457,39 @@ def test_pick_speaker_follows_the_moving_mouth():
     assert director.mouth_motion(grey, face) > 10
 
 
+def test_seam_geometry_and_avoidance():
+    import director
+    M = np.eye(3)                                       # body = world: lenses look along +-Y, seam is the y = 0 plane
+    assert abs(director.seam_angle(M, np.array([1.0, 0.0, 0.0])) - 0) < 1e-6
+    assert abs(director.seam_angle(M, np.array([0.0, 1.0, 0.0])) - 90) < 1e-6
+    side = director.seam_share(M, 90.0, 0.0, 105.0, (1920, 1080))     # looking straight along the seam
+    front = director.seam_share(M, 0.0, 0.0, 105.0, (1920, 1080))     # looking down a lens axis
+    assert side > 0.1 and front == 0.0
+    real = director.body_rot
+    try:
+        director.body_rot = lambda clip, t: M
+        keys = [dict(t=0.0, yaw=45.0, pitch=0.0, fov=105.0), dict(t=3.0, yaw=50.0, pitch=0.0, fov=105.0)]
+        out, info = director.avoid_seam({}, 0.0, keys, (1920, 1080))
+        assert info["shift"] < 0 and all(director.seam_share(M, k["yaw"], k["pitch"], k["fov"], (1920, 1080)) <
+                                         director.seam_share(M, k0["yaw"], 0, 105, (1920, 1080)) for k, k0 in zip(out, keys))
+        on = [dict(t=0.0, yaw=90.0, pitch=0.0, fov=105.0), dict(t=3.0, yaw=90.0, pitch=0.0, fov=105.0)]
+        out, info = director.avoid_seam({}, 0.0, on, (1920, 1080))
+        assert info.get("on_subject") and out == on      # the subject is on the seam: leave the shot alone
+    finally:
+        director.body_rot = real
+
+
+def test_directed_moves_and_unknown_shots():
+    import director, autoedit
+    a = dict(yaw=40.0, pitch=0.0, side=1, strength=1.0)
+    mv, ks = director.scenery_keys(a, (1920, 1080), 4.0, move="tilt")
+    assert mv == "tilt" and ks[1]["pitch"] > ks[0]["pitch"]          # the director's move wins over the default
+    mv, ks = director.scenery_keys(a, (1920, 1080), 4.0, move="hold")
+    assert mv == "hold" and ks[0]["yaw"] == ks[1]["yaw"] == 40.0
+    job = autoedit.plan_shots([], [dict(clip_id="nope", start=0, end=3)])
+    assert job["specs"] == [] and "unknown clip" in job["warnings"][0]
+
+
 # ---------------------------------------------------------------- runner
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
