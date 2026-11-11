@@ -407,7 +407,7 @@ def _fmt_plan(p, full):
     return "\n".join(lines)
 
 
-def plan_edit(clip_ids=None, query="", seconds=60, aspect="16:9", captions="burn", coverage="even", min_clip_seconds=2.0,
+def plan_edit(clip_ids=None, query="", seconds=0, aspect="16:9", captions="burn", coverage="even", min_clip_seconds=2.0,
               wait_seconds=120):
     ids = _resolve(clip_ids, query)
     j = _post("/api/jobs", dict(kind="plan", clip_ids=ids, seconds=float(seconds), aspect=aspect, captions=captions,
@@ -422,7 +422,7 @@ def plan_edit(clip_ids=None, query="", seconds=60, aspect="16:9", captions="burn
     return [_text(_fmt_plan(_get(j["output"]), True))]
 
 
-def auto_edit(clip_ids=None, query="", seconds=60, aspect="16:9", transition="auto", captions="burn", coverage="even",
+def auto_edit(clip_ids=None, query="", seconds=0, aspect="16:9", transition="auto", captions="burn", coverage="even",
               title="", music_path="", transcribe_missing=False, min_clip_seconds=2.0):
     ids = _resolve(clip_ids, query)
     j = _post("/api/jobs", dict(kind="autoedit", clip_ids=ids, seconds=float(seconds), aspect=aspect, transition=transition,
@@ -517,13 +517,13 @@ TOOLS = {
                     "wait_seconds": {"type": "integer", "default": 0}}, []),
     "plan_edit": (plan_edit, "Plan a film from many clips WITHOUT rendering: returns the picked cuts in capture order, how they cover each day / part of day, warnings (missing transcripts, skipped clips) and a `cuts` JSON you can edit and pass to render_sequence. coverage='even' spreads cuts over the whole footage timeline in proportion to how much was filmed; 'highlights' takes the best-scoring segments anywhere.",
                   {"clip_ids": {"type": "array", "items": {"type": "string"}}, "query": {"type": "string", "description": "instead of clip_ids: substring of event folder, file name or date"},
-                   "seconds": {"type": "number", "default": 60}, "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5"], "default": "16:9"},
+                   "seconds": {"type": "number", "default": 0, "description": "target length; 0 = no target: every worthwhile moment, each conversation kept whole (length never costs a shot its completeness)"}, "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5"], "default": "16:9"},
                    "captions": {"type": "string", "enum": ["off", "burn", "soft"], "default": "burn"},
                    "coverage": {"type": "string", "enum": ["even", "highlights"], "default": "even"},
                    "min_clip_seconds": {"type": "number", "default": 2}, "wait_seconds": {"type": "integer", "default": 120}}, []),
     "auto_edit": (auto_edit, "One-click film from several clips (= plan_edit + render in one background job; returns at once): talk segments (whole sentences) framed on the selfie-stick holder's face with captions; scenery aimed at the most detailed / lit direction with one eased move each (pan, push in, pull out, tilt up); transition auto = hard cuts, a whip pan where the day / part of day changes, a little-planet opener and ending, fade to black. Follow it with job_status. Use plan_edit first to review the cuts.",
                   {"clip_ids": {"type": "array", "items": {"type": "string"}}, "query": {"type": "string", "description": "instead of clip_ids: substring of event folder, file name or date"},
-                   "seconds": {"type": "number", "default": 60},
+                   "seconds": {"type": "number", "default": 0, "description": "target length; 0 = no target: every worthwhile moment, each conversation kept whole (length never costs a shot its completeness)"},
                    "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5"], "default": "16:9"},
                    "transition": {"type": "string", "enum": ["auto", "cut", "fade", "fadeblack", "wipeleft", "circleopen"], "default": "auto"},
                    "captions": {"type": "string", "enum": ["off", "burn", "soft"], "default": "burn"},

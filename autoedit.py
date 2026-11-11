@@ -17,7 +17,7 @@ def suggest(motion, tx, dur, calm_every=None):
     if tx and tx.get("segments"):
         cur = None
         for s in tx["segments"]:
-            if cur and s["start"] - cur["end"] < 1.5 and s["end"] - cur["start"] <= 8:
+            if cur and s["start"] - cur["end"] < 1.5 and s["end"] - cur["start"] <= TALK_MAX:
                 cur["end"] = s["end"]; cur["text"] += " " + s["text"]
             else:
                 if cur:
@@ -49,7 +49,7 @@ def suggest(motion, tx, dur, calm_every=None):
 
 KIND_SCORE = {"talk": 3.0, "calm": 2.0}
 TALK_LIFT = 58.0                                    # deg above the stick: the face, not the chest (talk framing)
-TALK_MAX = 8.0                                      # s: longest talk cut (whole transcript sentences)
+TALK_MAX = 45.0                                     # s: longest talk cut - a whole exchange, never cut short for time
 SCENERY_LEN = (3.5, 3.0, 4.5, 3.0, 4.0)             # s: scenery cut lengths, varied so the rhythm is not a metronome
 CALM_EVERY = 15.0                                   # s between calm windows offered inside one long steady run
 PARTS = [(0, 5, "凌晨"), (5, 12, "早"), (12, 18, "午"), (18, 24, "晚")]
@@ -205,7 +205,7 @@ def plan_shots(clips, shots, aspect="16:9", fps=30, transition="auto", captions=
     return job
 
 
-def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="auto", captions="burn", min_len=2.5, max_len=6.0,
+def plan(clips, seconds=0.0, aspect="16:9", fps=30, transition="auto", captions="burn", min_len=2.5, max_len=6.0,
          music=None, coverage="even", min_clip_seconds=2.0, progress=None):
     """clips: library clip dicts (path, id, duration, shot, audio, lenses).  Returns a sequence job body (specs, size,
     fps, ...) plus a reviewable plan: cuts (clip-time keys and captions, render_sequence format), coverage by part of
@@ -269,6 +269,9 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="auto", captions
     def length(x):
         return x["end"] - x["start"]
 
+    no_target = not seconds or seconds <= 0                 # no length target: every worthwhile moment, complete
+    if no_target:
+        seconds = sum(length(x) for x in cands) or 1.0
     n = max(1, round(seconds / ((min_len + max_len) / 2)))
     B = max(T / n, 1e-6)
     cap = {ci: max(1, math.ceil(float(c["duration"]) / B)) for ci, c in enumerate(usable)}   # no clip hogs the film
@@ -374,7 +377,7 @@ def plan(clips, seconds=30.0, aspect="16:9", fps=30, transition="auto", captions
             warnings.append(f"{g['period']} ({g['footage_share'] * 100:.0f}% of the footage) has no usable talk or steady segment.")
     if captions in ("burn", "soft") and chosen and not any("captions" in cu for cu in cuts):
         warnings.append("captions were requested but none of the picked cuts has transcribed speech: the film will have no subtitles.")
-    if usable and total < 0.8 * seconds:
+    if usable and not no_target and total < 0.8 * seconds:
         warnings.append(f"only {total:.0f} s of usable segments found (target {seconds:.0f} s).")
     if not usable:
         warnings.append("no usable clips.")

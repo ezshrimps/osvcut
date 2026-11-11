@@ -490,6 +490,13 @@ def test_directed_moves_and_unknown_shots():
     assert job["specs"] == [] and "unknown clip" in job["warnings"][0]
 
 
+def test_talk_keeps_whole_exchanges():
+    import autoedit
+    tx = {"segments": [dict(start=float(i * 2), end=float(i * 2 + 1.8), text=f"line {i} of a long exchange") for i in range(9)]}
+    talks = [x for x in autoedit.suggest(None, tx, 30.0) if x["kind"] == "talk"]
+    assert len(talks) == 1 and talks[0]["start"] == 0.0 and talks[0]["end"] == 17.8     # not cut at 8 s
+
+
 # ---------------------------------------------------------------- runner
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

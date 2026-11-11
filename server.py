@@ -224,7 +224,7 @@ def plan_then_queue(job, clips, b):
                                        transition=b.get("transition", "auto"), captions=b.get("captions", "burn"),
                                        progress=progress)
         else:
-            plan = autoedit.plan(clips, seconds=float(b.get("seconds", 30)), aspect=b.get("aspect", "16:9"),
+            plan = autoedit.plan(clips, seconds=float(b.get("seconds") or 0), aspect=b.get("aspect", "16:9"),
                                  transition=b.get("transition", "auto"), captions=b.get("captions", "burn"),
                                  music=b.get("music"), coverage=b.get("coverage", "even"),
                                  min_clip_seconds=float(b.get("min_clip_seconds", 2.0)), progress=progress)
