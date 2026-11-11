@@ -90,7 +90,7 @@ let DATA = null, MARKS = {segments:{}}, saveTimer = null;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const mmss = t => `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
-const CH = {day1:'第一天', night1:'第一晚', night2:'第二晚', sphere:'演唱会', late:'凌晨'};
+let CH = {};                                         // chapter display names: data.json "chapters"
 const KIND = {person:'人物', thing:'画面元素', framing:'现在的取景'};
 
 function seg(i){ return MARKS.segments[i] ||= {comment:'', drop:false, seen:false, candidates:{}}; }
@@ -101,6 +101,7 @@ async function load(){
   DATA = await (await fetch(BASE + 'data.json', {cache:'no-store'})).json();
   try { const r = await fetch(BASE + 'marks.json', {cache:'no-store'}); if(r.ok) MARKS = await r.json(); } catch(e) {}
   MARKS.segments ||= {};
+  CH = DATA.chapters || {};
   document.title = `审片 · ${DATA.name}`; $('title').textContent = `审片标注 · ${DATA.name}`;
   const chs = [...new Set(DATA.segments.map(s => s.chapter).filter(Boolean))];
   $('fCh').innerHTML += chs.map(c => `<option value="${esc(c)}">${esc(CH[c] || c)}</option>`).join('');
