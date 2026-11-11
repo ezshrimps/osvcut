@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>审片标注</title>
+<style>
+:root{
+  --bg:#0d0e10; --panel:#15171a; --panel2:#1c1f23; --line:#2a2e34; --text:#e7e9ec; --dim:#8b929c;
+  --accent:#f2a93b; --accent2:#4fc3d9; --danger:#e5616b; --ok:#5fc48a;
+  --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,"Microsoft YaHei UI","PingFang SC",sans-serif}
+header{position:sticky;top:0;z-index:5;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:15px;margin:0;font-weight:600}
+header .grow{flex:1}
+.pill{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:2px 10px}
+.pill b{color:var(--text)}
+#save{font-size:12px;color:var(--dim)}
+#save.ok{color:var(--ok)} #save.err{color:var(--danger)}
+select,button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit;font-size:13px}
+label.tog{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--dim);cursor:pointer}
+.wrap{display:grid;grid-template-columns:210px 1fr;gap:0;min-height:calc(100vh - 52px)}
+nav{position:sticky;top:52px;align-self:start;max-height:calc(100vh - 52px);overflow:auto;padding:10px 8px;border-right:1px solid var(--line)}
+nav .ch{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin:12px 6px 4px}
+nav a{display:flex;gap:6px;align-items:center;padding:3px 6px;border-radius:5px;color:var(--dim);text-decoration:none;font-size:12px}
+nav a:hover{background:var(--panel2);color:var(--text)}
+nav a .dot{width:7px;height:7px;border-radius:50%;background:var(--line);flex:none}
+nav a.done .dot{background:var(--ok)} nav a.drop .dot{background:var(--danger)}
+nav a span.t{font-family:var(--mono);font-size:11px;color:var(--dim)}
+main{padding:16px 22px 80px;max-width:1300px}
+.seg{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin:0 0 18px;padding:14px 16px;scroll-margin-top:64px}
+.seg.dropped{opacity:.55}
+.seg h2{font-size:14px;margin:0 0 4px;display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}
+.seg h2 .t{font-family:var(--mono);color:var(--accent)}
+.seg h2 .meta{font-size:12px;color:var(--dim);font-weight:400}
+.note{color:var(--dim);font-size:13px;margin:2px 0 8px}
+.sum{background:var(--panel2);border-left:3px solid var(--accent2);padding:6px 10px;border-radius:4px;margin:6px 0 10px}
+.sum b{color:var(--accent2);font-weight:600;font-size:12px;margin-right:6px}
+table.lines{width:100%;border-collapse:collapse;margin:6px 0 12px;font-size:13px}
+table.lines td{border-top:1px solid var(--line);padding:4px 6px;vertical-align:top}
+table.lines td.tm{font-family:var(--mono);color:var(--dim);white-space:nowrap;width:52px}
+table.lines td.en{width:48%}
+table.lines td.zh{color:#cfd6de}
+table.lines tr.unsure td.en{color:var(--dim)}
+.badge{display:inline-block;font-size:10px;border-radius:4px;padding:0 5px;margin-left:6px;vertical-align:1px}
+.badge.ok{background:#1f3b2b;color:var(--ok)} .badge.no{background:#3b2a1f;color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.cand{background:var(--panel2);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
+.cand.on{border-color:var(--ok);box-shadow:0 0 0 1px var(--ok) inset}
+.cand img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;cursor:zoom-in;background:#000}
+.cand .row{display:flex;gap:6px;align-items:center;padding:6px 8px 2px;font-size:12px}
+.cand .row .lab{flex:1;color:var(--dim)}
+.kind{font-size:10px;border-radius:4px;padding:0 5px}
+.kind.person{background:#1d3240;color:var(--accent2)} .kind.thing{background:#3a321c;color:var(--accent)} .kind.framing{background:#2c2c36;color:#b9b5ff}
+.cand label.imp{display:flex;gap:5px;align-items:center;cursor:pointer;color:var(--text);white-space:nowrap}
+.cand textarea{margin:4px 8px 8px;min-height:32px}
+textarea{width:calc(100% - 16px);background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:inherit;font-size:13px;resize:vertical}
+textarea:focus{outline:none;border-color:var(--accent2)}
+.segfoot{display:flex;gap:12px;align-items:flex-start;margin-top:12px}
+.segfoot textarea{flex:1;width:auto;min-height:40px}
+.empty{color:var(--dim);font-size:13px}
+#lb{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:20;cursor:zoom-out}
+#lb img{max-width:92vw;max-height:88vh;border-radius:8px}
+#lb div{position:absolute;bottom:18px;left:0;right:0;text-align:center;color:var(--dim)}
+@media (max-width:760px){.wrap{grid-template-columns:1fr} nav{display:none} main{padding:12px}}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">审片标注</h1>
+  <span class="pill">已看 <b id="nDone">0</b>/<b id="nAll">0</b></span>
+  <span class="pill">打勾 <b id="nImp">0</b></span>
+  <span class="grow"></span>
+  <select id="fCh"><option value="">全部章节</option></select>
+  <label class="tog"><input type="checkbox" id="fTalk"> 只看有对白的段</label>
+  <label class="tog"><input type="checkbox" id="fTodo"> 只看还没看的</label>
+  <span id="save">读取中…</span>
+</header>
+<div class="wrap">
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+<div id="lb"><img alt=""><div></div></div>
+<script>
+const SET = new URLSearchParams(location.search).get('set') || '';
+const BASE = `/cache/review/${encodeURIComponent(SET)}/`;
+let DATA = null, MARKS = {segments:{}}, saveTimer = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const mmss = t => `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
+const CH = {day1:'第一天', night1:'第一晚', night2:'第二晚', sphere:'演唱会', late:'凌晨'};
+const KIND = {person:'人物', thing:'画面元素', framing:'现在的取景'};
+
+function seg(i){ return MARKS.segments[i] ||= {comment:'', drop:false, seen:false, candidates:{}}; }
+function cand(i, id){ return seg(i).candidates[id] ||= {important:false, comment:''}; }
+
+async function load(){
+  if(!SET){ $('main').innerHTML = '<p class="empty">地址里缺少 ?set=名字</p>'; return; }
+  DATA = await (await fetch(BASE + 'data.json', {cache:'no-store'})).json();
+  try { const r = await fetch(BASE + 'marks.json', {cache:'no-store'}); if(r.ok) MARKS = await r.json(); } catch(e) {}
+  MARKS.segments ||= {};
+  document.title = `审片 · ${DATA.name}`; $('title').textContent = `审片标注 · ${DATA.name}`;
+  const chs = [...new Set(DATA.segments.map(s => s.chapter).filter(Boolean))];
+  $('fCh').innerHTML += chs.map(c => `<option value="${esc(c)}">${esc(CH[c] || c)}</option>`).join('');
+  ['fCh','fTalk','fTodo'].forEach(id => $(id).addEventListener('change', render));
+  render(); $('save').textContent = MARKS.saved ? `上次保存 ${MARKS.saved}` : '尚未保存';
+}
+
+function visible(s){
+  if($('fCh').value && s.chapter !== $('fCh').value) return false;
+  if($('fTalk').checked && !s.lines.length) return false;
+  if($('fTodo').checked && seg(s.i).seen) return false;
+  return true;
+}
+
+function render(){
+  const segs = DATA.segments.filter(visible);
+  let nav = '', last = null;
+  for(const s of DATA.segments){
+    if(s.chapter !== last){ nav += `<div class="ch">${esc(CH[s.chapter] || s.chapter || '')}</div>`; last = s.chapter; }
+    const m = MARKS.segments[s.i] || {};
+    nav += `<a href="#s${s.i}" id="n${s.i}" class="${m.drop ? 'drop' : m.seen ? 'done' : ''}"><span class="dot"></span><span class="t">${mmss(s.film_t)}</span>${esc((s.note || '').slice(0, 22))}</a>`;
+  }
+  $('nav').innerHTML = nav;
+  $('main').innerHTML = segs.map(segHTML).join('') || '<p class="empty">没有符合筛选的段落</p>';
+  counts();
+}
+
+function segHTML(s){
+  const m = seg(s.i), zh = s.zh || [];
+  const lines = s.lines.length ? `<table class="lines">${s.lines.map((l, k) => `
+      <tr class="${l.agreed ? '' : 'unsure'}"><td class="tm">${(l.start - s.start).toFixed(1)}s</td>
+      <td class="en">${esc(l.text)}<span class="badge ${l.agreed ? 'ok' : 'no'}">${l.agreed ? '两个模型一致' : '可能听错'}</span></td>
+      <td class="zh">${esc(zh[k] || '')}</td></tr>`).join('')}</table>` : '<p class="empty">这段没有对白（现场声）。</p>';
+  const cands = s.candidates.map(c => {
+    const cm = (m.candidates || {})[c.id] || {};
+    return `<div class="cand ${cm.important ? 'on' : ''}" id="c${c.id}">
+      <img loading="lazy" src="${BASE}${c.id}.jpg" alt="${esc(c.label)}" data-cap="${esc(c.label)} · 第 ${(c.t - s.start).toFixed(1)} 秒">
+      <div class="row"><span class="kind ${c.kind}">${KIND[c.kind] || c.kind}</span><span class="lab">${esc(c.label)}</span></div>
+      <div class="row"><span class="lab">第 ${(c.t - s.start).toFixed(1)} 秒</span>
+        <label class="imp"><input type="checkbox" data-i="${s.i}" data-c="${c.id}" ${cm.important ? 'checked' : ''}> 重要</label></div>
+      <textarea placeholder="备注（比如：他在指那台机器）" data-i="${s.i}" data-c="${c.id}">${esc(cm.comment || '')}</textarea>
+    </div>`;
+  }).join('');
+  return `<section class="seg ${m.drop ? 'dropped' : ''}" id="s${s.i}">
+    <h2><span class="t">${mmss(s.film_t)}</span>${esc(CH[s.chapter] || s.chapter || '')}
+      <span class="meta">素材 ${esc(s.clip || s.clip_id)} · ${s.start.toFixed(1)}–${s.end.toFixed(1)} 秒 · ${(s.end - s.start).toFixed(1)} 秒</span></h2>
+    <div class="note">我放这段的理由：${esc(s.note)}</div>
+    ${s.summary ? `<div class="sum"><b>我的理解</b>${esc(s.summary)}</div>` : ''}
+    ${lines}
+    <div class="grid">${cands || '<p class="empty">没有候选画面</p>'}</div>
+    <div class="segfoot">
+      <textarea placeholder="对这一段的意见：我理解得对吗？哪里该拍、哪里不该拍？" data-i="${s.i}" data-seg="1">${esc(m.comment || '')}</textarea>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label class="tog"><input type="checkbox" data-i="${s.i}" data-seen="1" ${m.seen ? 'checked' : ''}> 这段看完了</label>
+        <label class="tog"><input type="checkbox" data-i="${s.i}" data-drop="1" ${m.drop ? 'checked' : ''}> 这段不要</label>
+      </div>
+    </div>
+  </section>`;
+}
+
+function counts(){
+  const all = DATA.segments.length;
+  let done = 0, imp = 0;
+  for(const s of DATA.segments){
+    const m = MARKS.segments[s.i]; if(!m) continue;
+    if(m.seen) done++;
+    imp += Object.values(m.candidates || {}).filter(c => c.important).length;
+  }
+  $('nAll').textContent = all; $('nDone').textContent = done; $('nImp').textContent = imp;
+}
+
+function changed(){
+  counts(); $('save').className = ''; $('save').textContent = '未保存…';
+  clearTimeout(saveTimer); saveTimer = setTimeout(save, 700);
+}
+async function save(){
+  clearTimeout(saveTimer); saveTimer = null;            // only unsaved edits are flushed when the page closes
+  try {
+    const r = await fetch(`/api/review/${encodeURIComponent(SET)}`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(MARKS)});
+    const j = await r.json(); if(!r.ok) throw new Error(j.error || r.status);
+    MARKS.saved = j.saved; $('save').className = 'ok'; $('save').textContent = `已保存 ${j.saved.slice(11)}`;
+  } catch(e) { $('save').className = 'err'; $('save').textContent = '保存失败：' + e.message; }
+}
+
+document.addEventListener('change', e => {
+  const t = e.target, i = t.dataset.i; if(i === undefined) return;
+  if(t.dataset.c){ cand(i, t.dataset.c).important = t.checked; $('c' + t.dataset.c).classList.toggle('on', t.checked); seg(i).seen = true; }
+  else if(t.dataset.seen){ seg(i).seen = t.checked; }
+  else if(t.dataset.drop){ seg(i).drop = t.checked; $('s' + i).classList.toggle('dropped', t.checked); }
+  const n = $('n' + i); if(n){ const m = seg(i); n.className = m.drop ? 'drop' : m.seen ? 'done' : ''; }
+  changed();
+});
+document.addEventListener('input', e => {
+  const t = e.target, i = t.dataset.i; if(i === undefined || t.tagName !== 'TEXTAREA') return;
+  if(t.dataset.c) cand(i, t.dataset.c).comment = t.value; else seg(i).comment = t.value;
+  changed();
+});
+document.addEventListener('click', e => {
+  if(e.target.tagName === 'IMG' && e.target.closest('.cand')){
+    $('lb').querySelector('img').src = e.target.src; $('lb').querySelector('div').textContent = e.target.dataset.cap;
+    $('lb').style.display = 'flex';
+  } else if(e.target.closest('#lb')) $('lb').style.display = 'none';
+});
+window.addEventListener('beforeunload', () => { if(saveTimer) save(); });
+load();
+</script>
+</body>
+</html>

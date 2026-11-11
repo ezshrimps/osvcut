@@ -483,6 +483,17 @@ class Handler(RangeHandler):
 
     def do_POST(self):
         p = unquote(urlparse(self.path).path)
+        m = re.match(r"^/api/review/([\w.-]+)$", p)
+        if m:                                              # the author's ticks and comments on a review sheet
+            folder = os.path.join(HERE, "cache", "review", m.group(1))
+            if not os.path.isdir(folder):
+                return self._json({"error": "unknown review"}, 404)
+            marks = self._body()
+            marks["saved"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            tmp = os.path.join(folder, "marks.json.tmp")
+            json.dump(marks, open(tmp, "w", encoding="utf8"), ensure_ascii=False, indent=1)
+            os.replace(tmp, os.path.join(folder, "marks.json"))
+            return self._json({"ok": True, "saved": marks["saved"]})
         if p == "/api/jobs":
             b = self._body()
             kind = b.get("kind")
