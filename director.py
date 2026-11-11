@@ -150,10 +150,11 @@ def avoid_seam(clip, t0, keys, size, max_shift=30.0, near=8.0):
 MOVES = ("pan", "push", "pull", "tilt")
 
 
-def scenery_keys(a, size, d, prev_move=None, pan_dir=1, move=None):
+def scenery_keys(a, size, d, prev_move=None, pan_dir=1, move=None, fov=None):
     """Keys (shot time) for a scenery shot of d seconds aimed at a = aim(...).  move: the director's choice
-    (pan / push / pull / tilt / hold); by default tilt for tall subjects, else the next move unlike the last one."""
-    f = base_fov(size)
+    (pan / push / pull / tilt / hold); by default tilt for tall subjects, else the next move unlike the last one.
+    fov: the shot's field of view instead of the normal one (e.g. wide for a dome)."""
+    f = float(fov) if fov else base_fov(size)
     y, p = a["yaw"], a["pitch"]
     if move not in MOVES + ("hold",):
         order = ["tilt"] if p > 8 else []
@@ -341,6 +342,54 @@ def face_track(clip, keys, t0, size, step=0.8, min_hits=0.5, seed=None):
         pc = max(float(p) - 0.12 * vfov, float(p) + fsize / 2 - 0.42 * vfov)
         out.append(dict(t=round(ts, 3), yaw=round(_wrap(float(y)), 1),
                         pitch=round(max(-60.0, min(80.0, pc)), 1), fov=round(fov, 1)))
+    return out
+
+
+def beat_fov(v, size):
+    """A beat's field of view: a number, or close / normal / wide / ultra relative to the output's normal view."""
+    f = base_fov(size)
+    if isinstance(v, (int, float)):
+        return float(v)
+    return {"close": f * 0.9, "normal": f, "wide": min(130.0, f * 1.25), "ultra": min(150.0, f * 1.45)}.get(v or "normal", f)
+
+
+def beat_keys(clip, a, b, beats, size, ease=0.8):
+    """Keys (shot time) for a shot the director split into beats: each beat (at = clip seconds, focus = yaw /
+    pitch, fov, track) holds until the next one; the camera moves between beats in `ease` s.  track = follow the
+    face found around the focus (speaker tracking seeded there) instead of holding still.  This is how one long
+    take becomes several shots: wide when someone points at the table, onto the person who answers, back."""
+    d = b - a
+    bs = sorted(beats, key=lambda x: float(x.get("at", a)))
+    spans = []
+    for i, bt in enumerate(bs):
+        s0 = 0.0 if i == 0 else max(0.0, min(d, float(bt["at"]) - a))
+        s1 = d if i + 1 == len(bs) else max(s0, min(d, float(bs[i + 1]["at"]) - a))
+        if s1 - s0 > 0.05:
+            spans.append((s0, s1, bt))
+    keys = []
+    for i, (s0, s1, bt) in enumerate(spans):
+        fo = bt.get("focus") or {}
+        y, p, f = float(fo.get("yaw", 0)), float(fo.get("pitch", 0)), beat_fov(bt.get("fov"), size)
+        h0 = s0 + (ease / 2 if i > 0 else 0.0)               # this beat owns [h0, h1]; the moves sit in between
+        h1 = s1 - (ease / 2 if i + 1 < len(spans) else 0.0)
+        if h1 - h0 < 0.1:
+            h0 = h1 = (s0 + s1) / 2
+        part = None
+        if bt.get("track") and h1 - h0 > 1.5:
+            base = [dict(t=0.0, yaw=y, pitch=p, fov=f), dict(t=round(h1 - h0, 3), yaw=y, pitch=p, fov=f)]
+            part = face_track(clip, base, a + h0, size, seed=(y, p))
+        if part:
+            keys += [dict(k, t=round(k["t"] + h0, 3)) for k in part]
+        else:
+            keys += [dict(t=round(h0, 3), yaw=y, pitch=p, fov=round(f, 1)),
+                     dict(t=round(h1, 3), yaw=y, pitch=p, fov=round(f * 0.98, 1))]   # a breath of push: never frozen
+    keys.sort(key=lambda k: k["t"])
+    out = []
+    for k in keys:                                           # drop duplicates in time
+        if out and abs(k["t"] - out[-1]["t"]) < 1e-3:
+            out[-1] = k
+        else:
+            out.append(k)
     return out
 
 

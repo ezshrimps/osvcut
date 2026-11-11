@@ -497,6 +497,20 @@ def test_talk_keeps_whole_exchanges():
     assert len(talks) == 1 and talks[0]["start"] == 0.0 and talks[0]["end"] == 17.8     # not cut at 8 s
 
 
+def test_beat_keys_choreograph_a_long_take():
+    import director
+    beats = [dict(at=10.0, focus=dict(yaw=0, pitch=0), fov="normal"),
+             dict(at=14.0, focus=dict(yaw=90, pitch=-20), fov="wide"),
+             dict(at=18.0, focus=dict(yaw=-30, pitch=5), fov=80)]
+    ks = director.beat_keys({}, 10.0, 22.0, beats, (1920, 1080))
+    assert ks[0]["t"] == 0.0 and abs(ks[-1]["t"] - 12.0) < 1e-6
+    at = lambda t: director._at(ks, t)
+    assert abs(at(2.0)["yaw"]) < 1e-6
+    assert abs(at(6.0)["yaw"] - 90) < 1e-6 and at(6.0)["fov"] > director.base_fov((1920, 1080))   # the wide beat
+    assert abs(at(10.0)["yaw"] + 30) < 1e-6
+    assert all(b["t"] > a["t"] for a, b in zip(ks, ks[1:]))
+
+
 # ---------------------------------------------------------------- runner
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

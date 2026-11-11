@@ -103,7 +103,9 @@ def frame_cuts(chosen, size, fps, captions="burn", auto=True, progress=None):
         c, a, b = x["clip"], x["start"], x["end"]
         d = round(b - a, 3)
         fo = x.get("focus")
-        if x["kind"] == "talk":
+        if x.get("beats"):                                  # the director choreographed this shot beat by beat
+            keys, move = director.beat_keys(c, a, b, x["beats"], size), "beats"
+        elif x["kind"] == "talk":
             if fo:                                          # the director says where the speaker is
                 keys = director.talk_keys([dict(t=0.0, yaw=float(fo["yaw"]), pitch=float(fo["pitch"]), fov=100.0),
                                            dict(t=d, yaw=float(fo["yaw"]), pitch=float(fo["pitch"]), fov=100.0)], size)
@@ -123,10 +125,12 @@ def frame_cuts(chosen, size, fps, captions="burn", auto=True, progress=None):
                     am = director.aim(I)
                 except Exception:                           # noqa: BLE001  (no frame / no IMU: look ahead)
                     am = dict(yaw=0.0, pitch=0.0, side=1, strength=0.0)
-            move, keys = director.scenery_keys(am, size, d, prev_move, move=x.get("move"))
+            move, keys = director.scenery_keys(am, size, d, prev_move, move=x.get("move"),
+                                               fov=director.beat_fov(x["fov"], size) if x.get("fov") else None)
         try:                                                # keep the lens-to-lens seam out of the frame
             keys, seam = director.avoid_seam(c, a, keys, size,     # a named subject stays near the centre
-                                             max_shift=12.0 if x["kind"] == "talk" else 15.0 if fo else 30.0)
+                                             max_shift=8.0 if x.get("beats") else 12.0 if x["kind"] == "talk"
+                                             else 15.0 if fo else 30.0)
         except Exception:                                   # noqa: BLE001  (no IMU track)
             seam = dict(shift=0.0, share=None)
         x["seam"] = seam
@@ -146,7 +150,10 @@ def frame_cuts(chosen, size, fps, captions="burn", auto=True, progress=None):
         sp = dict(src=c["path"], **{"in": round(a, 2), "out": round(b, 2)}, proj="flat", size=size, fps=fps, seam="flow",
                   seam_opts={"conf": "photo"}, cq=20, keys=keys)
         caps = []
-        if captions in ("burn", "soft") and x.get("caption", x["kind"] == "talk") and x["tx"]:
+        if captions in ("burn", "soft") and x.get("lines") is not None:      # lines checked by ear: these, as given
+            caps = [dict(start=float(s["start"]), end=float(s["end"]), text=s["text"]) for s in x["lines"]
+                    if float(s["end"]) > a and float(s["start"]) < b and str(s.get("text", "")).strip()]
+        elif captions in ("burn", "soft") and x.get("caption", x["kind"] == "talk") and x["tx"]:
             caps = [dict(start=s["start"], end=s["end"], text=s["text"]) for s in x["tx"].get("segments", [])
                     if s["end"] > a and s["start"] < b]
             if caps:
@@ -189,6 +196,7 @@ def plan_shots(clips, shots, aspect="16:9", fps=30, transition="auto", captions=
         kind = sh.get("kind") or ("talk" if text else "calm")
         chosen.append(dict(clip=c, start=a, end=b, kind=kind, tx=tx, text=text, focus=sh.get("focus"),
                            move=sh.get("move"), chapter=sh.get("chapter"), note=sh.get("note", ""),
+                           beats=sh.get("beats"), lines=sh.get("lines"), fov=sh.get("fov"),
                            **({"caption": bool(sh["caption"])} if sh.get("caption") is not None else {})))
     auto = transition == "auto"
     specs, cuts = frame_cuts(chosen, size, fps, captions, auto, progress)

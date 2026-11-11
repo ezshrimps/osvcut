@@ -547,7 +547,15 @@ TOOLS = {
                           "move": {"type": "string", "enum": ["pan", "push", "pull", "tilt", "hold"]},
                           "chapter": {"type": "string", "description": "shots of a new chapter start with a whip pan"},
                           "caption": {"type": "boolean", "description": "burn the transcript in (default: talk shots only)"},
-                          "note": {"type": "string", "description": "why this shot is in the film (kept in the plan)"}},
+                          "note": {"type": "string", "description": "why this shot is in the film (kept in the plan)"},
+                          "beats": {"type": "array", "description": "choreograph a long shot: watch it through (look at several times), "
+                                    "then give one beat per thing worth seeing - {at: clip seconds, focus: {yaw, pitch}, fov: number | close | "
+                                    "normal | wide | ultra, track: follow the speaking face around the focus}. The camera moves between beats in "
+                                    "0.8 s. E.g. someone points at the table -> a wide beat on the table and the people around it.",
+                                    "items": {"type": "object"}},
+                          "fov": {"description": "field of view of a calm shot: degrees or close / normal / wide / ultra (wide for a dome or a crowd)"},
+                          "lines": {"type": "array", "description": "captions checked by ear [{start, end, text}] in clip seconds; "
+                                    "replace the transcript for this shot ([] = no captions)", "items": {"type": "object"}}},
                           "required": ["clip_id", "start", "end"]}},
                        "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5"], "default": "16:9"},
                        "transition": {"type": "string", "enum": ["auto", "cut", "fade", "fadeblack", "wipeleft", "circleopen"], "default": "auto"},
